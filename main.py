@@ -1,103 +1,69 @@
 """
-MyRoom-AI 메인 서버
-가구 추천 API를 recommand 모듈에서 제공
+MyRoom AI REST API 서버
+
+Flask와 Flask-RESTX를 사용한 RESTful API 서버의 진입점입니다.
+Swagger UI를 통해 API 문서를 제공합니다.
+RabbitMQ Consumer를 별도 스레드에서 실행하여 3D 모델 생성 요청을 처리합니다.
+
+실행 방법:
+    개발 모드: python main.py
+    프로덕션 모드: FLASK_ENV=production python main.py
 """
 
-from flask import Flask, jsonify
-import sys
 import os
-from pathlib import Path
-
-# recommand 모듈 경로 추가
-recommand_path = str(Path(__file__).parent / 'recommand')
-sys.path.insert(0, recommand_path)
-
-# api_server에서 Flask 앱 임포트
-API_INTEGRATED = False
-try:
-    from api_server import app as api_app, init_vectorizer, vectorizer
-    print("[Main] API 서버를 recommand 모듈에서 로드했습니다.")
-    API_INTEGRATED = True
-except ImportError as e:
-    print(f"[Error] API 로드 실패: {e}")
-    api_app = None
-
-# Flask 앱 선택
-if API_INTEGRATED and api_app:
-    app = api_app
-    # 벡터화 엔진 초기화
-    try:
-        init_vectorizer()
-        print("[Main] 벡터화 엔진이 초기화되었습니다.")
-    except Exception as e:
-        print(f"[Warning] 벡터화 엔진 초기화 실패: {e}")
-else:
-    # Fallback: 독립 Flask 앱 생성
-    app = Flask(__name__)
+from threading import Thread
+from app import create_app
+from app.utils.rabbitmq_consumer import start_consumer_thread
 
 
-# ========================================
-# 기본 엔드포인트
-# ========================================
+# 애플리케이션 생성
+app = create_app()
 
-@app.route('/', methods=['GET'])
+
+@app.route('/')
 def index():
-    """메인 페이지"""
-    return jsonify({
-        "name": "MyRoom-AI",
-        "description": "지능형 가구 추천 시스템",
-        "version": "1.0.0",
-        "api_integrated": API_INTEGRATED,
-        "services": {
-            "recommendation_api": "/api/status",
-            "swagger_ui": "/api/docs",
-            "documentation": "/api/docs"
+    """
+    루트 경로
+    API 문서 페이지로 리다이렉트합니다.
+    """
+    return {
+        'message': 'MyRoom AI API에 오신 것을 환영합니다!',
+        'documentation': '/docs',
+        'version': app.config['API_VERSION'],
+        'features': {
+            'rabbitmq_consumer': 'RabbitMQ 메시지 수신 중',
+            'model3d_generation': '3D 모델 생성 서비스 활성화'
         }
-    }), 200
+    }
 
-
-@app.route('/docs', methods=['GET'])
-def docs():
-    """API 문서 링크"""
-    return jsonify({
-        "message": "API 문서를 확인하세요",
-        "documentation_file": "recommand/API_DOCUMENTATION.md",
-        "endpoints": [
-            {"method": "GET", "path": "/api/status", "description": "API 상태 확인"},
-            {"method": "GET", "path": "/api/health", "description": "헬스 체크"},
-            {"method": "POST", "path": "/api/analyze/image", "description": "이미지 분석"},
-            {"method": "POST", "path": "/api/search/image", "description": "이미지 검색"},
-            {"method": "POST", "path": "/api/search/text", "description": "텍스트 검색"},
-            {"method": "POST", "path": "/api/recommend", "description": "가구 추천"},
-            {"method": "POST", "path": "/api/recommend/batch", "description": "배치 추천"},
-            {"method": "POST", "path": "/api/db/build", "description": "DB 구축"},
-            {"method": "GET", "path": "/api/db/info", "description": "DB 정보"}
-        ]
-    }), 200
-
-
-# ========================================
-# 앱 초기화 및 실행
-# ========================================
 
 if __name__ == '__main__':
-    print("[Main] MyRoom-AI 서버 시작...")
-    print(f"[Main] API 통합 상태: {'성공' if API_INTEGRATED else '실패'}")
+    # 환경 변수에서 포트 번호 가져오기 (기본값: 5000)
+    port = int(os.environ.get('PORT', 5000))
     
-    if not API_INTEGRATED:
-        print("[Error] API를 로드할 수 없습니다.")
-        print("[Info] 다음을 확인하세요:")
-        print("  1. recommand/api_server.py 파일이 있는지 확인")
-        print("  2. Python 경로가 올바른지 확인")
-        print("  3. 직접 실행: cd recommand && python api_server.py")
+    # 환경 변수에서 호스트 가져오기 (기본값: 0.0.0.0)
+    host = os.environ.get('HOST', '0.0.0.0')
     
-    print("[Info] http://localhost:5000 에서 서버가 실행 중입니다.")
-    print("[Info] http://localhost:5000/docs 에서 API 문서를 확인할 수 있습니다.")
-    print("[Info] test_api.html 에서 웹 기반 API 테스트")
+    # RabbitMQ Consumer를 별도 스레드에서 시작
+    try:
+        consumer_thread = Thread(
+            target=start_consumer_thread,
+            args=(app,),
+            daemon=True,
+            name='RabbitMQ-Consumer'
+        )
+        consumer_thread.start()
+        app.logger.info('RabbitMQ Consumer 스레드 시작됨')
+    except Exception as e:
+        app.logger.warning(f'RabbitMQ Consumer 시작 실패: {e}')
+        app.logger.warning('RabbitMQ 없이 Flask 서버만 실행됩니다.')
+    
+    # 서버 시작
+    app.logger.info(f'서버가 http://{host}:{port} 에서 시작됩니다.')
+    app.logger.info(f'Swagger 문서는 http://{host}:{port}/docs 에서 확인할 수 있습니다.')
     
     app.run(
-        host='0.0.0.0',
-        port=5000,
-        debug=True,
-        use_reloader=False
+        host=host,
+        port=port,
+        debug=app.config['DEBUG']
     )
