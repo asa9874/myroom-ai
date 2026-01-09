@@ -43,6 +43,10 @@ class Config:
     RABBITMQ_PASSWORD = os.environ.get('RABBITMQ_PASSWORD') or 'guest'
     RABBITMQ_QUEUE = 'model3d.upload.queue'
     
+    # RabbitMQ Producer 설정 (Flask → Spring Boot)
+    RABBITMQ_EXCHANGE = 'model3d.exchange'
+    RABBITMQ_RESPONSE_ROUTING_KEY = 'model3d.response'
+    
     # 3D 모델 저장 경로
     MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
     

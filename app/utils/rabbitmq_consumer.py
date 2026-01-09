@@ -18,6 +18,103 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 
+class RabbitMQProducer:
+    """
+    Flask에서 Spring Boot로 3D 모델 생성 완료 메시지를 전송하는 클래스
+    """
+    
+    def __init__(self, config):
+        """
+        RabbitMQ Producer 초기화
+        
+        Args:
+            config: Flask Config 딕셔너리 (RabbitMQ 설정 포함)
+        """
+        self.config = config
+        self.credentials = pika.PlainCredentials(
+            config['RABBITMQ_USERNAME'],
+            config['RABBITMQ_PASSWORD']
+        )
+        self.parameters = pika.ConnectionParameters(
+            host=config['RABBITMQ_HOST'],
+            port=config['RABBITMQ_PORT'],
+            credentials=self.credentials,
+            heartbeat=600,
+            blocked_connection_timeout=300
+        )
+        self.exchange = config['RABBITMQ_EXCHANGE']
+        self.routing_key = config['RABBITMQ_RESPONSE_ROUTING_KEY']
+    
+    def send_generation_response(self, member_id, original_image_url, model3d_url,
+                                 status, message, thumbnail_url=None,
+                                 processing_time_seconds=None):
+        """
+        3D 모델 생성 완료 메시지 전송
+        
+        Args:
+            member_id: 회원 ID
+            original_image_url: 원본 이미지 URL
+            model3d_url: 생성된 3D 모델 URL (실패 시 None)
+            status: 생성 상태 ("SUCCESS" 또는 "FAILED")
+            message: 상태 메시지
+            thumbnail_url: 썸네일 URL (선택)
+            processing_time_seconds: 처리 시간(초) (선택)
+            
+        Returns:
+            전송 성공 여부 (bool)
+        """
+        try:
+            # RabbitMQ 연결
+            connection = pika.BlockingConnection(self.parameters)
+            channel = connection.channel()
+            
+            # Exchange 선언 (이미 있으면 기존 것 사용)
+            channel.exchange_declare(
+                exchange=self.exchange,
+                exchange_type='topic',
+                durable=True
+            )
+            
+            # 메시지 생성 (Spring Boot의 Model3DGenerationResponse 형식에 맞춤)
+            response_message = {
+                "memberId": member_id,
+                "originalImageUrl": original_image_url,
+                "model3dUrl": model3d_url,
+                "thumbnailUrl": thumbnail_url,
+                "status": status,
+                "message": message,
+                "timestamp": int(time.time() * 1000),  # 밀리초 단위
+                "processingTimeSeconds": processing_time_seconds
+            }
+            
+            # JSON으로 변환
+            message_body = json.dumps(response_message, ensure_ascii=False)
+            
+            # 메시지 전송
+            channel.basic_publish(
+                exchange=self.exchange,
+                routing_key=self.routing_key,
+                body=message_body,
+                properties=pika.BasicProperties(
+                    content_type='application/json',
+                    delivery_mode=2  # 메시지를 디스크에 저장 (persistent)
+                )
+            )
+            
+            logger.info(f"✅ Spring Boot로 메시지 전송 성공")
+            logger.info(f"   memberId={member_id}, status={status}")
+            logger.info(f"   메시지: {message}")
+            
+            # 연결 종료
+            connection.close()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Spring Boot로 메시지 전송 실패: {str(e)}")
+            return False
+
+
 class Model3DConsumer:
     """
     RabbitMQ Consumer 클래스
@@ -48,6 +145,9 @@ class Model3DConsumer:
         self.queue_name = config['RABBITMQ_QUEUE']
         self.connection = None
         self.channel = None
+        
+        # Producer 인스턴스 생성 (Spring Boot로 메시지 전송용)
+        self.producer = RabbitMQProducer(config)
         
     def callback(self, ch, method, properties, body):
         """
@@ -107,6 +207,7 @@ class Model3DConsumer:
             처리 결과 딕셔너리
         """
         logger.info(f"3D 모델 생성 시작: imageUrl={image_url}, memberId={member_id}")
+        start_time = time.time()
         
         try:
             # 1. 이미지 다운로드
@@ -127,25 +228,58 @@ class Model3DConsumer:
             # 4. 처리 로그 저장 (선택사항)
             self._save_processing_log(member_id, image_url, model_3d_path)
             
+            # 5. 처리 시간 계산
+            processing_time = int(time.time() - start_time)
+            
+            # 6. Spring Boot로 성공 메시지 전송
+            # TODO: 실제 환경에서는 model_3d_url을 실제 접근 가능한 URL로 변경
+            model_3d_url = f"http://localhost:5000/models/{os.path.basename(model_3d_path)}"
+            
+            self.producer.send_generation_response(
+                member_id=member_id,
+                original_image_url=image_url,
+                model3d_url=model_3d_url,
+                status="SUCCESS",
+                message="3D 모델 생성이 성공적으로 완료되었습니다.",
+                processing_time_seconds=processing_time
+            )
+            
             return {
                 'status': 'success',
                 'imageUrl': image_url,
                 'memberId': member_id,
                 'imagePath': image_path,
                 'model3dPath': model_3d_path,
+                'model3dUrl': model_3d_url,
                 'timestamp': timestamp,
-                'processedAt': datetime.now().isoformat()
+                'processedAt': datetime.now().isoformat(),
+                'processingTimeSeconds': processing_time
             }
             
         except Exception as e:
             logger.error(f"3D 모델 생성 실패: {e}", exc_info=True)
+            
+            # 처리 시간 계산
+            processing_time = int(time.time() - start_time)
+            
+            # Spring Boot로 실패 메시지 전송
+            self.producer.send_generation_response(
+                member_id=member_id,
+                original_image_url=image_url,
+                model3d_url=None,
+                status="FAILED",
+                message=f"3D 모델 생성 실패: {str(e)}",
+                processing_time_seconds=processing_time
+            )
+            
             return {
                 'status': 'failed',
                 'imageUrl': image_url,
                 'memberId': member_id,
                 'error': str(e),
                 'timestamp': timestamp,
-                'processedAt': datetime.now().isoformat()
+                'processedAt': datetime.now().isoformat(),
+                'processingTimeSeconds': processing_time
             }
     
     def _download_image(self, image_url: str) -> bytes:
