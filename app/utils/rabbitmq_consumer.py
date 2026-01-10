@@ -239,6 +239,7 @@ class Model3DConsumer:
                 member_id=member_id,
                 original_image_url=image_url,
                 model3d_url=model_3d_url,
+                thumbnail_url=image_url,  # 원본 이미지를 썸네일로 사용
                 status="SUCCESS",
                 message="3D 모델 생성이 성공적으로 완료되었습니다.",
                 processing_time_seconds=processing_time
@@ -267,6 +268,7 @@ class Model3DConsumer:
                 member_id=member_id,
                 original_image_url=image_url,
                 model3d_url=None,
+                thumbnail_url=image_url,  # 원본 이미지를 썸네일로 사용
                 status="FAILED",
                 message=f"3D 모델 생성 실패: {str(e)}",
                 processing_time_seconds=processing_time
