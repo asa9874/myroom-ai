@@ -61,3 +61,6 @@ htmlcov/
 dmypy.json
 
 uploads/*
+
+data
+yolov8n.pt

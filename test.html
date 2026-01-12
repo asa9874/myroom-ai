@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recommendation API 테스트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+            padding: 20px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .card.highlight h2 {
+            color: #764ba2;
+            border-bottom-color: #764ba2;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="file"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.95em;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        input[type="file"]:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+        }
+
+        .result.success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .result.error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .result.warning {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        .result h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .result-content {
+            max-height: 400px;
+            overflow-y: auto;
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-family: 'Monaco', 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .button-group button {
+            width: 100%;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .base-url {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+        }
+
+        .base-url label {
+            margin-bottom: 8px;
+        }
+
+        .base-url input {
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+            color: #1565c0;
+        }
+
+        .endpoint-label {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .endpoint-label.get {
+            background: #28a745;
+        }
+
+        .endpoint-label.post {
+            background: #007bff;
+        }
+
+        .preview-image {
+            max-width: 100%;
+            max-height: 200px;
+            margin-top: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .preview-image.show {
+            display: block;
+        }
+
+        .response-image {
+            max-width: 100%;
+            max-height: 300px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+
+        .footer {
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            padding: 20px;
+            opacity: 0.8;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .button-group {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 MyRoom AI - Recommendation API 테스트</h1>
+            <p>가구 추천 시스템의 모든 엔드포인트를 테스트해보세요</p>
+        </div>
+
+        <div class="base-url">
+            <label for="baseUrl">Base URL:</label>
+            <input type="text" id="baseUrl" value="http://localhost:5000" placeholder="http://localhost:5000">
+        </div>
+
+        <div class="grid">
+            <!-- Health Check -->
+            <div class="card">
+                <span class="endpoint-label get">GET</span>
+                <h2>✅ Health Check</h2>
+                <p style="color: #666; margin-bottom: 15px; font-size: 0.9em;">서비스 상태 및 데이터베이스 정보 확인</p>
+                <button onclick="testHealthCheck()">테스트</button>
+                <div class="result" id="health-result">
+                    <h3>결과:</h3>
+                    <div class="result-content" id="health-content"></div>
+                </div>
+                <div class="loading" id="health-loading">
+                    <div class="spinner"></div>
+                    <p>요청 중...</p>
+                </div>
+            </div>
+
+            <!-- Get Categories -->
+            <div class="card">
+                <span class="endpoint-label get">GET</span>
+                <h2>📂 가구 카테고리</h2>
+                <p style="color: #666; margin-bottom: 15px; font-size: 0.9em;">데이터베이스의 모든 가구 카테고리 조회</p>
+                <button onclick="testGetCategories()">조회</button>
+                <div class="result" id="categories-result">
+                    <h3>결과:</h3>
+                    <div class="result-content" id="categories-content"></div>
+                </div>
+                <div class="loading" id="categories-loading">
+                    <div class="spinner"></div>
+                    <p>요청 중...</p>
+                </div>
+            </div>
+
+            <!-- Statistics -->
+            <div class="card">
+                <span class="endpoint-label get">GET</span>
+                <h2>📊 통계</h2>
+                <p style="color: #666; margin-bottom: 15px; font-size: 0.9em;">데이터베이스 통계 정보 조회</p>
+                <button onclick="testGetStatistics()">조회</button>
+                <div class="result" id="stats-result">
+                    <h3>결과:</h3>
+                    <div class="result-content" id="stats-content"></div>
+                </div>
+                <div class="loading" id="stats-loading">
+                    <div class="spinner"></div>
+                    <p>요청 중...</p>
+                </div>
+            </div>
+
+            <!-- Text Search -->
+            <div class="card highlight">
+                <span class="endpoint-label post">POST</span>
+                <h2>🔍 텍스트 검색</h2>
+                <div class="info-box">텍스트로 유사한 가구를 검색합니다</div>
+                <div class="form-group">
+                    <label for="text-query">검색 쿼리:</label>
+                    <input type="text" id="text-query" placeholder="예: 현대적인 나무 의자" value="modern wooden chair">
+                </div>
+                <div class="form-group">
+                    <label for="text-top-k">결과 개수:</label>
+                    <input type="number" id="text-top-k" value="5" min="1" max="20">
+                </div>
+                <div class="form-group">
+                    <label for="text-type">가구 타입 (선택):</label>
+                    <input type="text" id="text-type" placeholder="예: chair, table, bed">
+                </div>
+                <button onclick="testTextSearch()">검색</button>
+                <div class="result" id="text-result">
+                    <h3>검색 결과:</h3>
+                    <div class="result-content" id="text-content"></div>
+                </div>
+                <div class="loading" id="text-loading">
+                    <div class="spinner"></div>
+                    <p>검색 중...</p>
+                </div>
+            </div>
+
+            <!-- Image Search -->
+            <div class="card highlight">
+                <span class="endpoint-label post">POST</span>
+                <h2>🖼️ 이미지 검색</h2>
+                <div class="info-box">이미지로 유사한 가구를 검색합니다</div>
+                <div class="form-group">
+                    <label for="image-file">이미지 파일:</label>
+                    <input type="file" id="image-file" accept="image/*">
+                    <img id="image-preview" class="preview-image" alt="미리보기">
+                </div>
+                <div class="form-group">
+                    <label for="image-top-k">결과 개수:</label>
+                    <input type="number" id="image-top-k" value="5" min="1" max="20">
+                </div>
+                <div class="form-group">
+                    <label for="image-type">가구 타입 (선택):</label>
+                    <input type="text" id="image-type" placeholder="예: chair, table, bed">
+                </div>
+                <button onclick="testImageSearch()">검색</button>
+                <div class="result" id="image-result">
+                    <h3>검색 결과:</h3>
+                    <div class="result-content" id="image-content"></div>
+                </div>
+                <div class="loading" id="image-loading">
+                    <div class="spinner"></div>
+                    <p>검색 중...</p>
+                </div>
+            </div>
+
+            <!-- Room Analysis & Recommendation -->
+            <div class="card highlight">
+                <span class="endpoint-label post">POST</span>
+                <h2>🏠 방 분석 & 추천</h2>
+                <div class="info-box">방의 이미지를 분석하고 AI 기반 추천</div>
+                <div class="form-group">
+                    <label for="room-image">방 이미지:</label>
+                    <input type="file" id="room-image" accept="image/*">
+                    <img id="room-preview" class="preview-image" alt="미리보기">
+                </div>
+                <div class="form-group">
+                    <label for="room-category">추천 카테고리:</label>
+                    <input type="text" id="room-category" placeholder="예: chair, table, lamp" value="chair">
+                </div>
+                <div class="form-group">
+                    <label for="room-top-k">결과 개수:</label>
+                    <input type="number" id="room-top-k" value="5" min="1" max="20">
+                </div>
+                <button onclick="testRoomAnalysis()">분석 및 추천</button>
+                <div class="result" id="room-result">
+                    <h3>분석 결과:</h3>
+                    <div class="result-content" id="room-content"></div>
+                </div>
+                <div class="loading" id="room-loading">
+                    <div class="spinner"></div>
+                    <p>분석 중...</p>
+                </div>
+            </div>
+
+            <!-- Initialize Database -->
+            <div class="card">
+                <span class="endpoint-label post">POST</span>
+                <h2>🗄️ 데이터베이스 초기화</h2>
+                <div class="info-box">새로운 VectorDB 초기화 및 구축</div>
+                <div class="form-group">
+                    <label for="init-data-dir">데이터 디렉토리:</label>
+                    <input type="text" id="init-data-dir" placeholder="예: ./data" value="./data">
+                </div>
+                <div class="form-group">
+                    <label for="init-model">모델 (선택):</label>
+                    <input type="text" id="init-model" placeholder="기본값: openai/clip-vit-base-patch32" value="openai/clip-vit-base-patch32">
+                </div>
+                <button onclick="testInitDatabase()">초기화</button>
+                <div class="result" id="init-result">
+                    <h3>결과:</h3>
+                    <div class="result-content" id="init-content"></div>
+                </div>
+                <div class="loading" id="init-loading">
+                    <div class="spinner"></div>
+                    <p>초기화 중...</p>
+                </div>
+            </div>
+
+            <!-- Train Images -->
+            <div class="card">
+                <span class="endpoint-label post">POST</span>
+                <h2>📚 이미지 학습 추가</h2>
+                <div class="info-box">기존 VectorDB에 이미지 추가 및 재학습</div>
+                <div class="form-group">
+                    <label for="train-files">이미지 파일 (다중):</label>
+                    <input type="file" id="train-files" multiple accept="image/*">
+                </div>
+                <div class="form-group">
+                    <label for="train-type">가구 타입:</label>
+                    <input type="text" id="train-type" placeholder="예: chair, table, bed" required>
+                </div>
+                <button onclick="testTrainImages()">학습</button>
+                <div class="result" id="train-result">
+                    <h3>결과:</h3>
+                    <div class="result-content" id="train-content"></div>
+                </div>
+                <div class="loading" id="train-loading">
+                    <div class="spinner"></div>
+                    <p>학습 중...</p>
+                </div>
+            </div>
+
+            <!-- Add Images (Legacy) -->
+            <div class="card">
+                <span class="endpoint-label post">POST</span>
+                <h2>➕ 이미지 추가 (레거시)</h2>
+                <div class="info-box">지정된 디렉토리의 이미지를 DB에 추가</div>
+                <div class="form-group">
+                    <label for="add-data-dir">데이터 디렉토리:</label>
+                    <input type="text" id="add-data-dir" placeholder="예: ./data" value="./data">
+                </div>
+                <button onclick="testAddImages()">추가</button>
+                <div class="result" id="add-result">
+                    <h3>결과:</h3>
+                    <div class="result-content" id="add-content"></div>
+                </div>
+                <div class="loading" id="add-loading">
+                    <div class="spinner"></div>
+                    <p>추가 중...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>💡 Tip: 모든 API는 <strong>localhost:5000</strong>에서 실행되어야 합니다.</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">MyRoom AI © 2026</p>
+        </div>
+    </div>
+
+    <script>
+        const getBaseUrl = () => document.getElementById('baseUrl').value;
+
+        // 이미지 미리보기
+        document.getElementById('image-file').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    document.getElementById('image-preview').src = event.target.result;
+                    document.getElementById('image-preview').classList.add('show');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        document.getElementById('room-image').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    document.getElementById('room-preview').src = event.target.result;
+                    document.getElementById('room-preview').classList.add('show');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // API 호출 함수
+        async function apiCall(endpoint, method, data, isFormData = false) {
+            const baseUrl = getBaseUrl();
+            const url = `${baseUrl}/api/recommendation${endpoint}`;
+            
+            const options = {
+                method: method,
+                headers: {}
+            };
+
+            // GET, HEAD 메서드는 body를 가질 수 없음
+            if (method !== 'GET' && method !== 'HEAD') {
+                if (isFormData) {
+                    options.body = data;
+                } else {
+                    options.headers['Content-Type'] = 'application/json';
+                    options.body = JSON.stringify(data);
+                }
+            }
+
+            try {
+                console.log(`API 호출: ${method} ${url}`);
+                const response = await fetch(url, options);
+                const responseData = await response.json();
+                return {
+                    ok: response.ok,
+                    status: response.status,
+                    data: responseData
+                };
+            } catch (error) {
+                console.error(`API 호출 실패: ${error.message}`);
+                return {
+                    ok: false,
+                    status: 0,
+                    data: { 
+                        error: error.message,
+                        details: '서버 연결 실패. 서버가 실행 중인지 확인하세요.',
+                        url: url
+                    }
+                };
+            }
+        }
+
+        // Health Check
+        async function testHealthCheck() {
+            const resultEl = document.getElementById('health-result');
+            const contentEl = document.getElementById('health-content');
+            const loadingEl = document.getElementById('health-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error');
+
+            try {
+                const response = await apiCall('/health', 'GET', {});
+                
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                    contentEl.textContent = JSON.stringify(response.data, null, 2);
+                } else {
+                    resultEl.classList.add('error');
+                    contentEl.textContent = JSON.stringify(response.data, null, 2);
+                }
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+
+        // Get Categories
+        async function testGetCategories() {
+            const resultEl = document.getElementById('categories-result');
+            const contentEl = document.getElementById('categories-content');
+            const loadingEl = document.getElementById('categories-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error');
+
+            try {
+                const response = await apiCall('/categories', 'GET', {});
+                
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                    contentEl.textContent = JSON.stringify(response.data, null, 2);
+                } else {
+                    resultEl.classList.add('error');
+                    contentEl.textContent = JSON.stringify(response.data, null, 2);
+                }
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+
+        // Get Statistics
+        async function testGetStatistics() {
+            const resultEl = document.getElementById('stats-result');
+            const contentEl = document.getElementById('stats-content');
+            const loadingEl = document.getElementById('stats-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error');
+
+            try {
+                const response = await apiCall('/statistics', 'GET', {});
+                
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                    contentEl.textContent = JSON.stringify(response.data, null, 2);
+                } else {
+                    resultEl.classList.add('error');
+                    contentEl.textContent = JSON.stringify(response.data, null, 2);
+                }
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+
+        // Text Search
+        async function testTextSearch() {
+            const query = document.getElementById('text-query').value;
+            const topK = parseInt(document.getElementById('text-top-k').value) || 5;
+            const type = document.getElementById('text-type').value;
+
+            if (!query) {
+                alert('검색 쿼리를 입력하세요');
+                return;
+            }
+
+            const resultEl = document.getElementById('text-result');
+            const contentEl = document.getElementById('text-content');
+            const loadingEl = document.getElementById('text-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error', 'warning');
+
+            try {
+                const data = {
+                    query: query,
+                    top_k: topK
+                };
+                if (type) data.furniture_type = type;
+
+                const response = await apiCall('/search/text', 'POST', data);
+                
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                } else if (response.data.status === 'warning') {
+                    resultEl.classList.add('warning');
+                } else {
+                    resultEl.classList.add('error');
+                }
+                contentEl.textContent = JSON.stringify(response.data, null, 2);
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+
+        // Image Search
+        async function testImageSearch() {
+            const file = document.getElementById('image-file').files[0];
+            const topK = parseInt(document.getElementById('image-top-k').value) || 5;
+            const type = document.getElementById('image-type').value;
+
+            if (!file) {
+                alert('이미지 파일을 선택하세요');
+                return;
+            }
+
+            const resultEl = document.getElementById('image-result');
+            const contentEl = document.getElementById('image-content');
+            const loadingEl = document.getElementById('image-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error', 'warning');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const baseUrl = getBaseUrl();
+                let url = `${baseUrl}/api/recommendation/search/image?top_k=${topK}`;
+                if (type) url += `&furniture_type=${type}`;
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                } else if (data.status === 'warning') {
+                    resultEl.classList.add('warning');
+                } else {
+                    resultEl.classList.add('error');
+                }
+                contentEl.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+
+        // Room Analysis
+        async function testRoomAnalysis() {
+            const file = document.getElementById('room-image').files[0];
+            const category = document.getElementById('room-category').value || 'chair';
+            const topK = parseInt(document.getElementById('room-top-k').value) || 5;
+
+            if (!file) {
+                alert('방 이미지를 선택하세요');
+                return;
+            }
+
+            const resultEl = document.getElementById('room-result');
+            const contentEl = document.getElementById('room-content');
+            const loadingEl = document.getElementById('room-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error', 'warning');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const baseUrl = getBaseUrl();
+                const url = `${baseUrl}/api/recommendation/analyze?category=${category}&top_k=${topK}`;
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                } else if (data.status === 'warning') {
+                    resultEl.classList.add('warning');
+                } else {
+                    resultEl.classList.add('error');
+                }
+                contentEl.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+
+        // Initialize Database
+        async function testInitDatabase() {
+            const dataDir = document.getElementById('init-data-dir').value || './data';
+            const model = document.getElementById('init-model').value || 'openai/clip-vit-base-patch32';
+
+            const resultEl = document.getElementById('init-result');
+            const contentEl = document.getElementById('init-content');
+            const loadingEl = document.getElementById('init-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error');
+
+            try {
+                const response = await apiCall('/init-database', 'POST', {
+                    data_dir: dataDir,
+                    model_name: model
+                });
+
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                } else {
+                    resultEl.classList.add('error');
+                }
+                contentEl.textContent = JSON.stringify(response.data, null, 2);
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+
+        // Train Images
+        async function testTrainImages() {
+            const files = document.getElementById('train-files').files;
+            const furnitureType = document.getElementById('train-type').value;
+
+            if (!files.length) {
+                alert('이미지 파일을 선택하세요');
+                return;
+            }
+
+            if (!furnitureType) {
+                alert('가구 타입을 입력하세요');
+                return;
+            }
+
+            const resultEl = document.getElementById('train-result');
+            const contentEl = document.getElementById('train-content');
+            const loadingEl = document.getElementById('train-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error');
+
+            try {
+                const formData = new FormData();
+                for (let file of files) {
+                    formData.append('files', file);
+                }
+                formData.append('furniture_type', furnitureType);
+
+                const baseUrl = getBaseUrl();
+                const url = `${baseUrl}/api/recommendation/train-images`;
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                } else {
+                    resultEl.classList.add('error');
+                }
+                contentEl.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+
+        // Add Images
+        async function testAddImages() {
+            const dataDir = document.getElementById('add-data-dir').value || './data';
+
+            const resultEl = document.getElementById('add-result');
+            const contentEl = document.getElementById('add-content');
+            const loadingEl = document.getElementById('add-loading');
+
+            loadingEl.classList.add('show');
+            resultEl.classList.remove('show', 'success', 'error');
+
+            try {
+                const baseUrl = getBaseUrl();
+                const url = `${baseUrl}/api/recommendation/add-images?data_dir=${encodeURIComponent(dataDir)}`;
+
+                const response = await fetch(url, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                resultEl.classList.add('show');
+                loadingEl.classList.remove('show');
+                
+                if (response.ok) {
+                    resultEl.classList.add('success');
+                } else {
+                    resultEl.classList.add('error');
+                }
+                contentEl.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultEl.classList.add('show', 'error');
+                loadingEl.classList.remove('show');
+                contentEl.textContent = `오류: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

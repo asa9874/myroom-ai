@@ -7,6 +7,7 @@ Flask 애플리케이션 팩토리
 import os
 import logging
 from flask import Flask
+from flask_cors import CORS
 from flask_restx import Api
 from config import config
 
@@ -33,6 +34,15 @@ def create_app(config_name=None):
     app.config.from_object(config[config_name])
     config[config_name].init_app(app)
     
+    # CORS 설정 (모든 도메인에서 접근 허용)
+    CORS(app, resources={
+        r"/api/*": {
+            "origins": "*",
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type"]
+        }
+    })
+    
     # 로깅 설정
     setup_logging(app)
     
@@ -43,7 +53,7 @@ def create_app(config_name=None):
         title=app.config['API_TITLE'],
         description=app.config['API_DESCRIPTION'],
         doc='/docs',  # Swagger UI 경로
-        prefix='/api/v1'  # API 기본 경로
+        prefix='/api'  # API 기본 경로 (v1 제거 - recommendation 라우트와 매칭)
     )
     
     # 라우트 등록
@@ -90,13 +100,18 @@ def register_routes(api):
         api (Api): Flask-RESTX API 인스턴스
     """
     from app.routes.health import ns as health_ns
-    from app.routes.example import ns as example_ns
-    from app.routes.model3d import api as model3d_ns
+    from app.routes.recommendation import api as recommendation_ns
+    from app.routes.recommendation import init_recommendation_system
     
     # 네임스페이스 추가
     api.add_namespace(health_ns, path='/health')
-    api.add_namespace(example_ns, path='/examples')
-    api.add_namespace(model3d_ns, path='/model3d')
+    api.add_namespace(recommendation_ns)
+    
+    # 추천 시스템 초기화
+    try:
+        init_recommendation_system()
+    except Exception as e:
+        api.logger.warning(f'추천 시스템 초기화 실패: {e}')
 
 
 def register_error_handlers(app):
