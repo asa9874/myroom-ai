@@ -15,6 +15,8 @@ from datetime import datetime
 from threading import Thread
 from typing import Dict, Any
 
+from .model3d_generator import Model3DGenerator
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,6 +151,9 @@ class Model3DConsumer:
         # Producer 인스턴스 생성 (Spring Boot로 메시지 전송용)
         self.producer = RabbitMQProducer(config)
         
+        # 3D 모델 생성기 인스턴스 생성
+        self.model_generator = Model3DGenerator()
+        
     def callback(self, ch, method, properties, body):
         """
         메시지 수신 시 호출되는 콜백 함수
@@ -218,11 +223,9 @@ class Model3DConsumer:
             image_path = self._save_image(image_data, member_id)
             logger.info(f"이미지 저장 완료: {image_path}")
             
-            # 3. AI 모델로 3D 생성 (현재는 Mock 처리)
-            # TODO: 실제 3D 생성 AI 모델 연동
-            logger.info("3D 모델 생성 중... (약 3초 소요)")
-            time.sleep(3)  # 3D 모델 생성 시뮬레이션 (3초)
-            model_3d_path = self._generate_3d_mock(image_path, member_id)
+            # 3. AI 모델로 3D 생성 (실제 API 호출)
+            logger.info("3D 모델 생성 중... (수 분 소요 가능)")
+            model_3d_path = self._generate_3d_model(image_path, member_id)
             logger.info(f"3D 모델 생성 완료: {model_3d_path}")
             
             # 4. 처리 로그 저장 (선택사항)
@@ -317,40 +320,30 @@ class Model3DConsumer:
         filename = f"member_{member_id}_{timestamp}.jpg"
         filepath = os.path.join(self.config['UPLOAD_FOLDER'], filename)
         
+        # 디렉토리가 없으면 생성
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
         with open(filepath, 'wb') as f:
             f.write(image_data)
         
         return filepath
     
-    def _generate_3d_mock(self, image_path: str, member_id: int) -> str:
+    def _generate_3d_model(self, image_path: str, member_id: int) -> str:
         """
-        3D 모델 생성 (Mock)
-        실제로는 AI 모델을 사용하여 3D 모델을 생성해야 합니다.
+        3D 모델 생성기를 사용하여 3D 모델 생성
         
         Args:
             image_path: 이미지 경로
             member_id: 사용자 ID
             
         Returns:
-            생성된 3D 모델 경로
+            생성된 3D 모델 파일 경로 (.glb)
         """
-        # TODO: 실제 3D 생성 AI 모델 연동
-        # 예: TripoSR, InstantMesh 등의 모델 사용
-        
-        # Mock: 단순히 텍스트 파일로 대체
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"model3d_{member_id}_{timestamp}.obj"
-        filepath = os.path.join(self.config['MODEL3D_FOLDER'], filename)
-        
-        # Mock 3D 모델 파일 생성 (실제로는 AI 모델 결과를 저장)
-        with open(filepath, 'w') as f:
-            f.write(f"# Mock 3D Model\n")
-            f.write(f"# Generated from: {image_path}\n")
-            f.write(f"# Member ID: {member_id}\n")
-            f.write(f"# Generated at: {datetime.now().isoformat()}\n")
-        
-        logger.info(f"Mock 3D 모델 생성: {filepath}")
-        return filepath
+        return self.model_generator.generate_3d_model(
+            image_path=image_path,
+            output_dir=self.config['MODEL3D_FOLDER'],
+            member_id=member_id
+        )
     
     def _save_processing_log(self, member_id: int, image_url: str, model_path: str):
         """
