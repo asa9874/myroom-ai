@@ -11,10 +11,13 @@ RabbitMQ Consumer를 별도 스레드에서 실행하여 3D 모델 생성 요청
 """
 
 import os
+from dotenv import load_dotenv
 from threading import Thread
 from app import create_app
 from app.utils.rabbitmq_consumer import start_consumer_thread
 
+# .env 파일에서 환경변수 로드
+load_dotenv()
 
 # 애플리케이션 생성
 app = create_app()

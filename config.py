@@ -48,6 +48,17 @@ class Config:
     RABBITMQ_RESPONSE_ROUTING_KEY = 'model3d.response'
     
     # 3D 모델 저장 경로
+    
+    # Gemini API 설정 (google-genai 패키지용 올바른 모델명)
+    # 공식 모델: gemini-2.5-flash, gemini-2.5-pro, gemini-3-flash, gemini-3-pro
+    GEMINI_PRIMARY_MODEL = os.environ.get('GEMINI_PRIMARY_MODEL') or 'gemini-2.5-flash'
+    GEMINI_FALLBACK_MODELS = [
+        'gemini-2.5-flash',
+        'gemini-2.5-pro',
+        'gemini-3-flash',
+    ]
+    GEMINI_MAX_RETRIES = 3
+    GEMINI_TIMEOUT = 30
     MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
     
     # 데이터베이스 설정 (필요시 활성화)

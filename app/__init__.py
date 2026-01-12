@@ -6,7 +6,9 @@ Flask 애플리케이션 팩토리
 
 import os
 import logging
-from flask import Flask
+import json
+from datetime import datetime
+from flask import Flask, request
 from flask_cors import CORS
 from flask_restx import Api
 from config import config
@@ -45,6 +47,9 @@ def create_app(config_name=None):
     
     # 로깅 설정
     setup_logging(app)
+    
+    # API 요청/응답 로깅 미들웨어 추가
+    setup_api_logging(app)
     
     # Flask-RESTX API 초기화
     api = Api(
@@ -87,9 +92,106 @@ def setup_logging(app):
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     
+    # 파일 핸들러 설정 (API 로그)
+    log_dir = 'logs'
+    os.makedirs(log_dir, exist_ok=True)
+    
+    file_handler = logging.FileHandler(os.path.join(log_dir, 'app.log'))
+    file_handler.setFormatter(formatter)
+    
     # Flask 앱 로거 설정
     app.logger.setLevel(log_level)
     app.logger.addHandler(console_handler)
+    app.logger.addHandler(file_handler)
+
+
+def setup_api_logging(app):
+    """
+    API 요청/응답 로깅 미들웨어 설정
+    
+    Args:
+        app (Flask): Flask 애플리케이션 인스턴스
+    """
+    # API 로그 파일 경로
+    log_dir = 'logs'
+    os.makedirs(log_dir, exist_ok=True)
+    api_log_path = os.path.join(log_dir, 'api.log')
+    
+    # API 로거 설정
+    api_logger = logging.getLogger('api_logger')
+    api_logger.setLevel(logging.INFO)
+    
+    # 파일 핸들러
+    api_handler = logging.FileHandler(api_log_path)
+    api_formatter = logging.Formatter(
+        '%(asctime)s - [%(levelname)s] - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    api_handler.setFormatter(api_formatter)
+    
+    # 콘솔 핸들러도 추가
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(api_formatter)
+    
+    api_logger.addHandler(api_handler)
+    api_logger.addHandler(console_handler)
+    
+    @app.before_request
+    def log_request():
+        """요청 로깅"""
+        if request.path.startswith('/api'):
+            # 요청 정보 수집
+            request.start_time = datetime.now()
+            
+            # 요청 데이터
+            if request.is_json:
+                request_data = request.get_json()
+            elif request.method == 'GET':
+                request_data = dict(request.args)
+            elif request.form:
+                request_data = dict(request.form)
+            else:
+                request_data = {}
+            
+            # 요청 로그 작성
+            log_message = {
+                'type': 'REQUEST',
+                'timestamp': datetime.now().isoformat(),
+                'method': request.method,
+                'path': request.path,
+                'url': request.url,
+                'remote_addr': request.remote_addr,
+                'data': request_data if request_data else 'No data'
+            }
+            api_logger.info(json.dumps(log_message, ensure_ascii=False, indent=2))
+    
+    @app.after_request
+    def log_response(response):
+        """응답 로깅"""
+        if request.path.startswith('/api'):
+            # 응답 시간 계산
+            duration = None
+            if hasattr(request, 'start_time'):
+                duration = (datetime.now() - request.start_time).total_seconds()
+            
+            # 응답 데이터 수집
+            try:
+                response_data = response.get_json() if response.is_json else response.get_data(as_text=True)
+            except Exception:
+                response_data = 'Unable to parse response'
+            
+            # 응답 로그 작성
+            log_message = {
+                'type': 'RESPONSE',
+                'timestamp': datetime.now().isoformat(),
+                'status_code': response.status_code,
+                'duration_seconds': duration,
+                'content_type': response.content_type,
+                'data': response_data
+            }
+            api_logger.info(json.dumps(log_message, ensure_ascii=False, indent=2))
+        
+        return response
 
 
 def register_routes(api):

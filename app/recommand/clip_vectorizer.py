@@ -292,23 +292,37 @@ class CLIPVectorizer:
             성공 여부
         """
         try:
-            if not os.path.exists(index_path) or not os.path.exists(metadata_path):
-                logger.warning(
-                    f"Database files not found: {index_path}, {metadata_path}"
-                )
+            logger.info(f"Attempting to load database from: {index_path}")
+            
+            # 절대 경로로 변환
+            abs_index_path = os.path.abspath(index_path)
+            abs_metadata_path = os.path.abspath(metadata_path)
+            
+            logger.info(f"Absolute index path: {abs_index_path}")
+            logger.info(f"Absolute metadata path: {abs_metadata_path}")
+            
+            if not os.path.exists(abs_index_path):
+                logger.error(f"[FAILED] Index file not found: {abs_index_path}")
+                return False
+            
+            if not os.path.exists(abs_metadata_path):
+                logger.error(f"[FAILED] Metadata file not found: {abs_metadata_path}")
                 return False
 
-            self.index = faiss.read_index(index_path)
-            with open(metadata_path, "rb") as f:
+            logger.info("Loading FAISS index...")
+            self.index = faiss.read_index(abs_index_path)
+            
+            logger.info("Loading metadata...")
+            with open(abs_metadata_path, "rb") as f:
                 self.metadata = pickle.load(f)
 
             logger.info(
-                f"Database loaded: {self.index.ntotal} items from {index_path}"
+                f"[SUCCESS] Database loaded successfully: {self.index.ntotal} items from {abs_index_path}"
             )
             return True
 
         except Exception as e:
-            logger.error(f"Error loading database: {e}")
+            logger.error(f"[ERROR] Error loading database: {e}", exc_info=True)
             return False
 
     def get_database_info(self) -> Dict:

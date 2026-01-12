@@ -322,7 +322,7 @@
                 <span class="endpoint-label get">GET</span>
                 <h2>✅ Health Check</h2>
                 <p style="color: #666; margin-bottom: 15px; font-size: 0.9em;">서비스 상태 및 데이터베이스 정보 확인</p>
-                <button onclick="testHealthCheck()">테스트</button>
+                <button type="button" onclick="testHealthCheck(); return false;">테스트</button>
                 <div class="result" id="health-result">
                     <h3>결과:</h3>
                     <div class="result-content" id="health-content"></div>
@@ -338,7 +338,7 @@
                 <span class="endpoint-label get">GET</span>
                 <h2>📂 가구 카테고리</h2>
                 <p style="color: #666; margin-bottom: 15px; font-size: 0.9em;">데이터베이스의 모든 가구 카테고리 조회</p>
-                <button onclick="testGetCategories()">조회</button>
+                <button type="button" onclick="testGetCategories(); return false;">조회</button>
                 <div class="result" id="categories-result">
                     <h3>결과:</h3>
                     <div class="result-content" id="categories-content"></div>
@@ -354,7 +354,7 @@
                 <span class="endpoint-label get">GET</span>
                 <h2>📊 통계</h2>
                 <p style="color: #666; margin-bottom: 15px; font-size: 0.9em;">데이터베이스 통계 정보 조회</p>
-                <button onclick="testGetStatistics()">조회</button>
+                <button type="button" onclick="testGetStatistics(); return false;">조회</button>
                 <div class="result" id="stats-result">
                     <h3>결과:</h3>
                     <div class="result-content" id="stats-content"></div>
@@ -382,7 +382,7 @@
                     <label for="text-type">가구 타입 (선택):</label>
                     <input type="text" id="text-type" placeholder="예: chair, table, bed">
                 </div>
-                <button onclick="testTextSearch()">검색</button>
+                <button type="button" onclick="testTextSearch(); return false;">검색</button>
                 <div class="result" id="text-result">
                     <h3>검색 결과:</h3>
                     <div class="result-content" id="text-content"></div>
@@ -411,7 +411,7 @@
                     <label for="image-type">가구 타입 (선택):</label>
                     <input type="text" id="image-type" placeholder="예: chair, table, bed">
                 </div>
-                <button onclick="testImageSearch()">검색</button>
+                <button type="button" onclick="testImageSearch(); return false;">검색</button>
                 <div class="result" id="image-result">
                     <h3>검색 결과:</h3>
                     <div class="result-content" id="image-content"></div>
@@ -440,7 +440,7 @@
                     <label for="room-top-k">결과 개수:</label>
                     <input type="number" id="room-top-k" value="5" min="1" max="20">
                 </div>
-                <button onclick="testRoomAnalysis()">분석 및 추천</button>
+                <button type="button" onclick="testRoomAnalysis(); return false;">분석 및 추천</button>
                 <div class="result" id="room-result">
                     <h3>분석 결과:</h3>
                     <div class="result-content" id="room-content"></div>
@@ -464,7 +464,7 @@
                     <label for="init-model">모델 (선택):</label>
                     <input type="text" id="init-model" placeholder="기본값: openai/clip-vit-base-patch32" value="openai/clip-vit-base-patch32">
                 </div>
-                <button onclick="testInitDatabase()">초기화</button>
+                <button type="button" onclick="testInitDatabase(); return false;">초기화</button>
                 <div class="result" id="init-result">
                     <h3>결과:</h3>
                     <div class="result-content" id="init-content"></div>
@@ -488,7 +488,7 @@
                     <label for="train-type">가구 타입:</label>
                     <input type="text" id="train-type" placeholder="예: chair, table, bed" required>
                 </div>
-                <button onclick="testTrainImages()">학습</button>
+                <button type="button" onclick="testTrainImages(); return false;">학습</button>
                 <div class="result" id="train-result">
                     <h3>결과:</h3>
                     <div class="result-content" id="train-content"></div>
@@ -508,7 +508,7 @@
                     <label for="add-data-dir">데이터 디렉토리:</label>
                     <input type="text" id="add-data-dir" placeholder="예: ./data" value="./data">
                 </div>
-                <button onclick="testAddImages()">추가</button>
+                <button type="button" onclick="testAddImages(); return false;">추가</button>
                 <div class="result" id="add-result">
                     <h3>결과:</h3>
                     <div class="result-content" id="add-content"></div>
@@ -523,11 +523,77 @@
         <div class="footer">
             <p>💡 Tip: 모든 API는 <strong>localhost:5000</strong>에서 실행되어야 합니다.</p>
             <p style="margin-top: 10px; font-size: 0.9em;">MyRoom AI © 2026</p>
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.2);">
+                <button type="button" id="log-button" onclick="downloadLogs(); return false;" style="background: rgba(255,255,255,0.2); margin-right: 10px; width: auto; padding: 8px 15px;">📥 로그 다운로드</button>
+                <button type="button" onclick="clearLogs(); return false;" style="background: rgba(255,255,255,0.2); width: auto; padding: 8px 15px;">🗑️ 로그 초기화</button>
+            </div>
         </div>
     </div>
 
     <script>
         const getBaseUrl = () => document.getElementById('baseUrl').value;
+        
+        // 요청 로그 저장
+        const requestLogs = [];
+        
+        // API 호출 로깅
+        function logAPICall(method, endpoint, requestData, response, duration) {
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                method: method,
+                endpoint: endpoint,
+                request: requestData,
+                response: response,
+                duration_ms: duration
+            };
+            
+            requestLogs.push(logEntry);
+            
+            // 콘솔에도 출력
+            console.group(`📡 API: ${method} ${endpoint}`);
+            console.log('Request:', requestData);
+            console.log('Response:', response);
+            console.log('Duration:', duration + 'ms');
+            console.groupEnd();
+            
+            updateLogDownloadButton();
+        }
+        
+        // 로그 다운로드
+        function downloadLogs() {
+            if (requestLogs.length === 0) {
+                alert('기록된 로그가 없습니다.');
+                return;
+            }
+            
+            const logContent = JSON.stringify(requestLogs, null, 2);
+            const blob = new Blob([logContent], { type: 'application/json;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', `api_logs_${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        // 로그 초기화
+        function clearLogs() {
+            if (confirm('정말 로그를 초기화하시겠습니까?')) {
+                requestLogs.length = 0;
+                updateLogDownloadButton();
+                alert('로그가 초기화되었습니다.');
+            }
+        }
+        
+        // 로그 버튼 업데이트
+        function updateLogDownloadButton() {
+            const btn = document.getElementById('log-button');
+            if (btn) {
+                btn.textContent = `📥 로그 다운로드 (${requestLogs.length}개)`;
+            }
+        }
 
         // 이미지 미리보기
         document.getElementById('image-file').addEventListener('change', (e) => {
@@ -558,6 +624,7 @@
         async function apiCall(endpoint, method, data, isFormData = false) {
             const baseUrl = getBaseUrl();
             const url = `${baseUrl}/api/recommendation${endpoint}`;
+            const startTime = performance.now();
             
             const options = {
                 method: method,
@@ -578,21 +645,32 @@
                 console.log(`API 호출: ${method} ${url}`);
                 const response = await fetch(url, options);
                 const responseData = await response.json();
+                const duration = Math.round(performance.now() - startTime);
+                
+                // 로그 기록
+                logAPICall(method, endpoint, data, responseData, duration);
+                
                 return {
                     ok: response.ok,
                     status: response.status,
                     data: responseData
                 };
             } catch (error) {
+                const duration = Math.round(performance.now() - startTime);
+                const errorResponse = { 
+                    error: error.message,
+                    details: '서버 연결 실패. 서버가 실행 중인지 확인하세요.',
+                    url: url
+                };
+                
+                // 에러 로그 기록
+                logAPICall(method, endpoint, data, errorResponse, duration);
+                
                 console.error(`API 호출 실패: ${error.message}`);
                 return {
                     ok: false,
                     status: 0,
-                    data: { 
-                        error: error.message,
-                        details: '서버 연결 실패. 서버가 실행 중인지 확인하세요.',
-                        url: url
-                    }
+                    data: errorResponse
                 };
             }
         }

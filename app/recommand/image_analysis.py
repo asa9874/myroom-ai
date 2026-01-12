@@ -19,7 +19,7 @@ import torch
 try:
     from ultralytics import YOLO
     from transformers import BlipProcessor, BlipForQuestionAnswering
-    import google.generativeai as genai
+    import google.genai as genai
 except ImportError as e:
     print(f"Warning: Some modules not available: {e}")
 
@@ -29,15 +29,27 @@ logger = logging.getLogger(__name__)
 class ImageAnalyzer:
     """이미지 분석 및 AI 기반 추천을 위한 클래스"""
 
-    def __init__(self, google_api_key: Optional[str] = None):
+    def __init__(self, google_api_key: Optional[str] = None, primary_model: str = None, fallback_models: List[str] = None):
         """
         이미지 분석기 초기화
 
         Args:
             google_api_key: Google Gemini API 키 (환경변수에서도 로드 가능)
+            primary_model: 주 사용 모델 (기본값: gemini-2.0-flash)
+            fallback_models: 폴백 모델 목록
         """
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {self.device}")
+        
+        # 모델 설정 (google-genai 패키지용)
+        self.primary_model = primary_model or os.getenv('GEMINI_PRIMARY_MODEL') or 'gemini-2.5-flash'
+        self.fallback_models = fallback_models or [
+            'gemini-2.5-flash',
+            'gemini-2.5-pro',
+            'gemini-3-flash',
+        ]
+        self.available_models = [self.primary_model] + [m for m in self.fallback_models if m != self.primary_model]
+        logger.info(f"[INFO] Gemini models configured - Primary: {self.primary_model}, Fallbacks: {self.fallback_models}")
 
         # YOLO 모델 로드
         logger.info("Loading YOLOv8 Object Detection model...")
@@ -69,13 +81,8 @@ class ImageAnalyzer:
 
         if api_key:
             try:
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel(
-                    model_name="gemini-2.0-flash",
-                    system_instruction="You are a professional interior designer. "
-                    "Your goal is to provide design recommendations based on room context. "
-                    "Provide concise, actionable recommendations.",
-                )
+                # google-genai 패키지 사용
+                self.gemini_model = genai.Client(api_key=api_key)
                 logger.info("Gemini AI configured successfully")
             except Exception as e:
                 logger.warning(f"Failed to configure Gemini: {e}")
@@ -201,6 +208,7 @@ class ImageAnalyzer:
     ) -> Tuple[str, str]:
         """
         Gemini AI를 사용한 추천 쿼리 및 이유 생성
+        모델 선택 및 자동 폴백 기능 포함
 
         Args:
             room_context: 방의 속성 정보 (style, color, material)
@@ -214,11 +222,10 @@ class ImageAnalyzer:
             logger.warning("Gemini model not available")
             return "No reasoning available", target_category
 
-        try:
-            # Gemini에게 물어볼 프롬프트 구성
-            furniture_str = ", ".join(detected_furniture) if detected_furniture else "None"
+        # Gemini에게 물어볼 프롬프트 구성
+        furniture_str = ", ".join(detected_furniture) if detected_furniture else "None"
 
-            prompt = f"""
+        prompt = f"""
 Based on the room analysis:
 - Style: {room_context.get('style', 'Unknown')}
 - Color: {room_context.get('color', 'Unknown')}
@@ -231,26 +238,49 @@ Format your response as:
 2. Search Query: [specific description for searching furniture]
 """
 
-            response = self.gemini_model.generate_content(prompt)
-            response_text = response.text
+        # 모델 선택 및 재시도 로직
+        for model_idx, model in enumerate(self.available_models):
+            try:
+                logger.info(f"[Model {model_idx + 1}/{len(self.available_models)}] Calling Gemini API with model: {model}")
+                
+                # google-genai API 호출
+                response = self.gemini_model.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                
+                logger.info(f"[SUCCESS] Gemini API response received from {model}: {response.text[:100]}...")
+                response_text = response.text
 
-            # 응답 파싱
-            lines = response_text.split("\n")
-            reasoning = "Professional recommendation"
-            search_query = f"{room_context.get('style', 'modern')} {target_category}"
+                # 응답 파싱
+                lines = response_text.split("\n")
+                reasoning = "Professional recommendation"
+                search_query = f"{room_context.get('style', 'modern')} {target_category}"
 
-            for line in lines:
-                if "Reasoning:" in line or "reasoning:" in line:
-                    reasoning = line.split(":", 1)[1].strip()
-                elif "Search Query:" in line or "search query:" in line:
-                    search_query = line.split(":", 1)[1].strip()
+                for line in lines:
+                    if "Reasoning:" in line or "reasoning:" in line:
+                        reasoning = line.split(":", 1)[1].strip()
+                    elif "Search Query:" in line or "search query:" in line:
+                        search_query = line.split(":", 1)[1].strip()
 
-            logger.info(f"Generated recommendation - Reasoning: {reasoning[:50]}...")
-            return reasoning, search_query
+                logger.info(f"[SUCCESS] Generated recommendation - Reasoning: {reasoning[:50]}... with model: {model}")
+                return reasoning, search_query
 
-        except Exception as e:
-            logger.error(f"Error generating recommendation: {e}")
-            return "Professional recommendation", f"{room_context.get('style', 'modern')} {target_category}"
+            except Exception as e:
+                error_code = getattr(e, 'code', 'UNKNOWN')
+                logger.warning(f"[Model {model_idx + 1}/{len(self.available_models)}] Error with '{model}': {error_code} - {str(e)[:100]}")
+                
+                # 마지막 모델도 실패한 경우
+                if model_idx == len(self.available_models) - 1:
+                    logger.error(f"[FAILED] All {len(self.available_models)} models failed. Using fallback response.")
+                    return "Professional recommendation", f"{room_context.get('style', 'modern')} {target_category}"
+                else:
+                    logger.info(f"[RETRY] Trying next model ({model_idx + 2}/{len(self.available_models)})...")
+                    continue
+        
+        # 루프를 벗어난 경우 (정상적인 반환이 없음)
+        logger.warning("Unexpected flow: Using default values")
+        return "Professional recommendation", f"{room_context.get('style', 'modern')} {target_category}"
 
     def analyze_image_comprehensive(
         self, image_path: str, target_category: str = "chair"

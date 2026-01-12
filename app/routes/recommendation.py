@@ -47,35 +47,51 @@ def init_recommendation_system():
         # CLIP 벡터라이저 초기화
         _vectorizer = CLIPVectorizer()
 
+        # 애플리케이션 컨텍스트에서 UPLOAD_FOLDER 가져오기
+        if current_app:
+            upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
+        else:
+            # 컨텍스트 없을 때는 상대 경로 사용 후 절대 경로로 변환
+            upload_folder = os.path.abspath("uploads")
+        
         # 데이터베이스 로드 시도
-        db_path = os.path.join(
-            current_app.config.get("UPLOAD_FOLDER", "uploads"),
-            "furniture_index.faiss",
-        )
-        db_meta_path = os.path.join(
-            current_app.config.get("UPLOAD_FOLDER", "uploads"),
-            "furniture_metadata.pkl",
-        )
+        db_path = os.path.join(upload_folder, "furniture_index.faiss")
+        db_meta_path = os.path.join(upload_folder, "furniture_metadata.pkl")
+
+        # 절대 경로 변환
+        db_path = os.path.abspath(db_path)
+        db_meta_path = os.path.abspath(db_meta_path)
+
+        # 디버깅: 경로 정보 로깅
+        logger.info(f"Looking for database files:")
+        logger.info(f"  Index path: {db_path}")
+        logger.info(f"  Metadata path: {db_meta_path}")
+        logger.info(f"  Index exists: {os.path.exists(db_path)}")
+        logger.info(f"  Metadata exists: {os.path.exists(db_meta_path)}")
 
         if os.path.exists(db_path) and os.path.exists(db_meta_path):
+            logger.info("Database files found. Attempting to load...")
             if _vectorizer.load_database(db_path, db_meta_path):
-                logger.info("Database loaded successfully")
+                logger.info(f"[SUCCESS] Database loaded successfully ({_vectorizer.index.ntotal} items)")
                 _db_loaded = True
             else:
-                logger.warning("Failed to load database, starting with empty index")
+                logger.warning("[FAILED] Failed to load database, starting with empty index")
         else:
-            logger.info("Database files not found, starting with empty index")
+            logger.warning("[WARNING] Database files not found, starting with empty index")
 
         # 검색 엔진 초기화
         _search_engine = FurnitureSearchEngine(_vectorizer)
 
-        # 이미지 분석기 초기화
-        _image_analyzer = ImageAnalyzer()
+        # 이미지 분석기 초기화 (공식 모델 설정)
+        _image_analyzer = ImageAnalyzer(
+            primary_model='gemini-2.5-flash',
+            fallback_models=['gemini-2.5-pro', 'gemini-3-flash']
+        )
 
         logger.info("Recommendation system initialized successfully")
 
     except Exception as e:
-        logger.error(f"Error initializing recommendation system: {e}")
+        logger.error(f"Error initializing recommendation system: {e}", exc_info=True)
         raise
 
 
