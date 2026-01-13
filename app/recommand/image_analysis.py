@@ -225,18 +225,21 @@ class ImageAnalyzer:
         # Gemini에게 물어볼 프롬프트 구성
         furniture_str = ", ".join(detected_furniture) if detected_furniture else "None"
 
-        prompt = f"""
-Based on the room analysis:
+        prompt = f"""Based on the room analysis:
 - Style: {room_context.get('style', 'Unknown')}
 - Color: {room_context.get('color', 'Unknown')}
 - Material: {room_context.get('material', 'Unknown')}
 - Existing Furniture: {furniture_str}
 
 Provide a recommendation for a {target_category} that would fit well.
-Format your response as:
-1. Reasoning: [explanation]
-2. Search Query: [specific description for searching furniture]
-"""
+
+IMPORTANT: You MUST respond EXACTLY in this format with no markdown formatting (no ** or other symbols):
+Reasoning: [2-3 sentence explanation of why this furniture fits the room style and color]
+Search Query: [{room_context.get('style', 'modern')} {room_context.get('color', 'white')} {target_category} with description]
+
+Example:
+Reasoning: This modern chair complements the neutral color scheme and would provide comfortable seating.
+Search Query: Modern white accent chair with sleek lines"""
 
         # 모델 선택 및 재시도 로직
         for model_idx, model in enumerate(self.available_models):
@@ -252,16 +255,33 @@ Format your response as:
                 logger.info(f"[SUCCESS] Gemini API response received from {model}: {response.text[:100]}...")
                 response_text = response.text
 
-                # 응답 파싱
+                # 응답 파싱 - 마크다운 제거 및 강화된 파싱
+                response_text = response_text.replace("**", "").strip()  # 마크다운 별표 제거
+                
                 lines = response_text.split("\n")
-                reasoning = "Professional recommendation"
-                search_query = f"{room_context.get('style', 'modern')} {target_category}"
+                reasoning = None
+                search_query = None
 
                 for line in lines:
-                    if "Reasoning:" in line or "reasoning:" in line:
-                        reasoning = line.split(":", 1)[1].strip()
-                    elif "Search Query:" in line or "search query:" in line:
-                        search_query = line.split(":", 1)[1].strip()
+                    line = line.strip()
+                    if not line:  # 빈 줄 스킵
+                        continue
+                    
+                    if line.startswith("Reasoning:"):
+                        reasoning = line.replace("Reasoning:", "").strip()
+                    elif line.startswith("reasoning:"):
+                        reasoning = line.replace("reasoning:", "").strip()
+                    elif line.startswith("Search Query:"):
+                        search_query = line.replace("Search Query:", "").strip()
+                    elif line.startswith("search query:"):
+                        search_query = line.replace("search query:", "").strip()
+
+                # 기본값 설정
+                if not reasoning or reasoning == "**":
+                    reasoning = f"This {target_category} complements the {room_context.get('color', 'neutral').lower()} color scheme and {room_context.get('style', 'modern').lower()} style perfectly."
+                
+                if not search_query or search_query == "**":
+                    search_query = f"{room_context.get('style', 'modern')} {room_context.get('color', 'white')} {target_category}"
 
                 logger.info(f"[SUCCESS] Generated recommendation - Reasoning: {reasoning[:50]}... with model: {model}")
                 return reasoning, search_query

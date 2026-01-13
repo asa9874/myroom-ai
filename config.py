@@ -47,6 +47,12 @@ class Config:
     RABBITMQ_EXCHANGE = 'model3d.exchange'
     RABBITMQ_RESPONSE_ROUTING_KEY = 'model3d.response'
     
+    # RabbitMQ 추천 설정 (Flask AI 서버 ↔ Spring Boot)
+    RECOMMAND_REQUEST_QUEUE = os.environ.get('RECOMMAND_REQUEST_QUEUE') or 'recommand.request.queue'
+    RECOMMAND_RESPONSE_QUEUE = os.environ.get('RECOMMAND_RESPONSE_QUEUE') or 'recommand.response.queue'
+    RECOMMAND_EXCHANGE = os.environ.get('RECOMMAND_EXCHANGE') or 'recommand.exchange'
+    RECOMMAND_RESPONSE_ROUTING_KEY = os.environ.get('RECOMMAND_RESPONSE_ROUTING_KEY') or 'recommand.response'
+    
     # 3D 모델 저장 경로
     
     # Gemini API 설정 (google-genai 패키지용 올바른 모델명)

@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from threading import Thread
 from app import create_app
 from app.utils.rabbitmq_consumer import start_consumer_thread
+from app.utils.recommendation_consumer import start_recommendation_consumer_thread
 
 # .env 파일에서 환경변수 로드
 load_dotenv()
@@ -47,19 +48,31 @@ if __name__ == '__main__':
     # 환경 변수에서 호스트 가져오기 (기본값: 0.0.0.0)
     host = os.environ.get('HOST', '0.0.0.0')
     
-    # RabbitMQ Consumer를 별도 스레드에서 시작
+    # RabbitMQ Consumer (3D 모델 생성)를 별도 스레드에서 시작
     try:
         consumer_thread = Thread(
             target=start_consumer_thread,
             args=(app,),
             daemon=True,
-            name='RabbitMQ-Consumer'
+            name='RabbitMQ-Consumer-Model3D'
         )
         consumer_thread.start()
-        app.logger.info('RabbitMQ Consumer 스레드 시작됨')
+        app.logger.info('3D 모델 생성 Consumer 스레드 시작됨')
     except Exception as e:
-        app.logger.warning(f'RabbitMQ Consumer 시작 실패: {e}')
-        app.logger.warning('RabbitMQ 없이 Flask 서버만 실행됩니다.')
+        app.logger.warning(f'3D 모델 생성 Consumer 시작 실패: {e}')
+    
+    # RabbitMQ Consumer (추천)를 별도 스레드에서 시작
+    try:
+        recommendation_consumer_thread = Thread(
+            target=start_recommendation_consumer_thread,
+            args=(app,),
+            daemon=True,
+            name='RabbitMQ-Consumer-Recommendation'
+        )
+        recommendation_consumer_thread.start()
+        app.logger.info('추천 요청 Consumer 스레드 시작됨')
+    except Exception as e:
+        app.logger.warning(f'추천 요청 Consumer 시작 실패: {e}')
     
     # 서버 시작
     app.logger.info(f'서버가 http://{host}:{port} 에서 시작됩니다.')

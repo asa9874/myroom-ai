@@ -103,7 +103,7 @@ class RabbitMQProducer:
                 )
             )
             
-            logger.info(f"✅ Spring Boot로 메시지 전송 성공")
+            logger.info(f"[SUCCESS] Spring Boot로 메시지 전송 성공")
             logger.info(f"   memberId={member_id}, status={status}")
             logger.info(f"   메시지: {message}")
             
@@ -113,7 +113,7 @@ class RabbitMQProducer:
             return True
             
         except Exception as e:
-            logger.error(f"❌ Spring Boot로 메시지 전송 실패: {str(e)}")
+            logger.error(f"[FAILED] Spring Boot로 메시지 전송 실패: {str(e)}")
             return False
 
 

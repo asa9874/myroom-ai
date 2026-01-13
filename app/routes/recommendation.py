@@ -367,7 +367,12 @@ class ImageSearch(Resource):
 
 @api.route("/analyze")
 class AnalyzeRoom(Resource):
-    """이미지 분석 및 AI 기반 추천"""
+    """이미지 분석 및 AI 기반 추천
+    
+    NOTE: 이 엔드포인트는 HTTP POST와 RabbitMQ 메시지 모두로 지원됩니다.
+    - HTTP POST: 직접 이미지를 업로드하여 즉시 결과 반환
+    - RabbitMQ: Java 서버에서 메시지 기반으로 요청하면 비동기 처리
+    """
 
     def post(self):
         """
@@ -380,6 +385,22 @@ class AnalyzeRoom(Resource):
 
         Returns:
             JSON: 방 분석 결과 및 추천
+        
+        예제:
+            curl -X POST \
+              -F "file=@room.jpg" \
+              -F "category=chair" \
+              -F "top_k=5" \
+              http://localhost:5000/api/recommendation/analyze
+        
+        RabbitMQ 메시지 형식 (Java → Flask):
+        {
+            "memberId": 1,
+            "imageUrl": "https://example.com/room.jpg",
+            "category": "chair",
+            "topK": 5,
+            "timestamp": 1705088400000
+        }
         """
         try:
             if "file" not in request.files:
