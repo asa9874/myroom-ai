@@ -1019,9 +1019,14 @@ class AnalyzeRoom(Resource):
                 recommendations = search_engine.search_by_text(
                     search_query, top_k, target_category
                 )
+                
+                # 🔥 FIX: Java DTO와 형식 일치하도록 memberId, timestamp 추가
+                import time
+                member_id = request.args.get("member_id", None, type=int)  # 쿼리 파라미터에서 memberId 가져오기
 
                 return {
                     "status": "success",
+                    "member_id": member_id,  # 🆕 Java: memberId
                     "room_analysis": room_context,
                     "recommendation": {
                         "target_category": target_category,
@@ -1030,6 +1035,7 @@ class AnalyzeRoom(Resource):
                         "results": recommendations,
                         "result_count": len(recommendations),
                     },
+                    "timestamp": int(time.time() * 1000),  # 🆕 Java: timestamp (Unix ms)
                 }, 200
 
             finally:

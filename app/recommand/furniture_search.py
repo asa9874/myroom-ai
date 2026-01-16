@@ -74,11 +74,16 @@ class FurnitureSearchEngine:
                 # 필터링 (furniture_type 지정 시)
                 if furniture_type and meta.get("furniture_type") != furniture_type:
                     continue
+                
+                # 🔥 FIX: is_shared=True인 항목만 반환
+                if not meta.get("is_shared", False):
+                    continue
 
                 results.append(
                     {
                         "rank": len(results) + 1,
                         "score": float(distances[0][i]),
+                        "model3d_id": meta.get("model3d_id"),  # 🆕 model3d_id 추가
                         "furniture_type": meta.get("furniture_type"),
                         "image_path": meta.get("image_path"),
                         "filename": meta.get("filename"),
@@ -144,11 +149,16 @@ class FurnitureSearchEngine:
                 # 필터링 (furniture_type 지정 시)
                 if furniture_type and meta.get("furniture_type") != furniture_type:
                     continue
+                
+                # 🔥 FIX: is_shared=True인 항목만 반환
+                if not meta.get("is_shared", False):
+                    continue
 
                 results.append(
                     {
                         "rank": len(results) + 1,
                         "score": float(distances[0][i]),
+                        "model3d_id": meta.get("model3d_id"),  # 🆕 model3d_id 추가
                         "furniture_type": meta.get("furniture_type"),
                         "image_path": meta.get("image_path"),
                         "filename": meta.get("filename"),
