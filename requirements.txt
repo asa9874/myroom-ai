@@ -15,3 +15,7 @@ pika==1.3.2
 torch>=2.0.0
 google-genai>=0.4.0
 ultralytics>=8.0.0
+
+# 프로덕션 성능 최적화
+gunicorn>=21.0.0  # WSGI HTTP 서버 (멀티워커 지원)
+gevent>=23.0.0    # 비동기 워커 (GIL 우회)

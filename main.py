@@ -78,8 +78,21 @@ if __name__ == '__main__':
     app.logger.info(f'서버가 http://{host}:{port} 에서 시작됩니다.')
     app.logger.info(f'Swagger 문서는 http://{host}:{port}/docs 에서 확인할 수 있습니다.')
     
+    # ⚠️ 성능 중요: 개발 중이어도 프로덕션 모드로 실행 권장
+    # debug=True 시 Werkzeug reloader가 모든 파일을 계속 모니터링하여 CPU 과다 점유
+    debug_mode = app.config['DEBUG']
+    use_reloader = False  # 파일 자동 재로드 비활성화
+    use_debugger = False  # Debugger 비활성화
+    
+    if debug_mode:
+        app.logger.warning("⚠️  DEBUG 모드 활성화 - FastAPI 성능이 저하될 수 있습니다")
+        app.logger.info("💡 권장: FLASK_ENV=production으로 실행하세요")
+    
     app.run(
         host=host,
         port=port,
-        debug=app.config['DEBUG']
+        debug=debug_mode,
+        use_reloader=use_reloader,
+        use_debugger=use_debugger,
+        threaded=True  # 멀티스레드 활성화 (GIL 영향 감소)
     )
