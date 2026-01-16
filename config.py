@@ -54,6 +54,13 @@ class Config:
     RECOMMAND_RESPONSE_ROUTING_KEY = os.environ.get('RECOMMAND_RESPONSE_ROUTING_KEY') or 'recommand.response'
     
     # 3D 모델 저장 경로
+    MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
+    
+    # 벡터DB 설정 (CLIP 모델 기반 메타데이터 저장)
+    # 메타데이터: 3d_model_id, furniture_type, image_path, is_shared, member_id
+    VECTORDB_PATH = os.path.join(os.path.dirname(__file__), 'uploads', 'vectordb')
+    VECTORDB_INDEX_FILE = 'furniture_index.pkl'
+    VECTORDB_METADATA_FILE = 'furniture_metadata.json'
     
     # Gemini API 설정 (google-genai 패키지용 올바른 모델명)
     # 공식 모델: gemini-2.5-flash, gemini-2.5-pro, gemini-3-flash, gemini-3-pro
@@ -65,7 +72,6 @@ class Config:
     ]
     GEMINI_MAX_RETRIES = 3
     GEMINI_TIMEOUT = 30
-    MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
     
     # 데이터베이스 설정 (필요시 활성화)
     # SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///myroom.db'
@@ -78,6 +84,8 @@ class Config:
         os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
         # 3D 모델 폴더가 없으면 생성
         os.makedirs(Config.MODEL3D_FOLDER, exist_ok=True)
+        # 벡터DB 폴더가 없으면 생성
+        os.makedirs(Config.VECTORDB_PATH, exist_ok=True)
 
 
 class DevelopmentConfig(Config):

@@ -164,44 +164,111 @@ recommendation_result = api.model(
 
 @api.route("/health")
 class HealthCheck(Resource):
-    """서비스 상태 확인"""
+    """서비스 상태 확인 (관리자용 - 실시간 조회)"""
 
     def get(self):
         """
-        추천 시스템 상태 확인
+        추천 시스템 상태 확인 (매번 fresh하게 vectorDB에서 읽음)
+        
+        이 엔드포인트는 관리자용이므로 캐싱하지 않습니다.
 
         Returns:
             JSON: 서비스 상태 및 데이터베이스 정보
         """
         try:
-            vectorizer = get_vectorizer()
+            # 매번 fresh하게 vectorizer 생성 (캐싱 없음)
+            vectorizer = CLIPVectorizer()
+            
+            # 애플리케이션 컨텍스트에서 UPLOAD_FOLDER 가져오기
+            if current_app:
+                upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
+            else:
+                upload_folder = os.path.abspath("uploads")
+            
+            # 데이터베이스 로드
+            db_path = os.path.join(upload_folder, "furniture_index.faiss")
+            db_meta_path = os.path.join(upload_folder, "furniture_metadata.pkl")
+            
+            db_path = os.path.abspath(db_path)
+            db_meta_path = os.path.abspath(db_meta_path)
+            
+            logger.info(f"[HEALTH] Fresh vectorDB load - Index: {db_path}")
+            
+            # 데이터베이스 파일 존재 확인 및 로드
+            db_loaded = False
+            if os.path.exists(db_path) and os.path.exists(db_meta_path):
+                if vectorizer.load_database(db_path, db_meta_path):
+                    db_loaded = True
+                    logger.info(f"[HEALTH] Database loaded: {vectorizer.index.ntotal} items")
+            
             db_info = vectorizer.get_database_info()
 
             return {
                 "status": "ok",
                 "message": "Recommendation service is running",
                 "database": db_info,
+                "db_loaded": db_loaded,
                 "timestamp": __import__("datetime").datetime.now().isoformat(),
             }, 200
 
         except Exception as e:
-            logger.error(f"Health check failed: {e}")
+            logger.error(f"Health check failed: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}, 500
 
 
 @api.route("/categories")
 class Categories(Resource):
-    """가구 카테고리 관리"""
+    """가구 카테고리 관리 (관리자용 - 실시간 조회)"""
 
     def get(self):
         """
-        데이터베이스의 모든 가구 카테고리 조회
+        데이터베이스의 모든 가구 카테고리 조회 (매번 fresh하게 vectorDB에서 읽음)
+        
+        이 엔드포인트는 관리자용이므로 캐싱하지 않고 항상 현재 상태를 반환합니다.
 
         Returns:
             JSON: 카테고리 목록 및 개수
         """
         try:
-            search_engine = get_search_engine()
+            # 매번 fresh하게 vectorizer와 search_engine 생성 (캐싱 없음)
+            vectorizer = CLIPVectorizer()
+            
+            # 애플리케이션 컨텍스트에서 UPLOAD_FOLDER 가져오기
+            if current_app:
+                upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
+            else:
+                upload_folder = os.path.abspath("uploads")
+            
+            # 데이터베이스 로드
+            db_path = os.path.join(upload_folder, "furniture_index.faiss")
+            db_meta_path = os.path.join(upload_folder, "furniture_metadata.pkl")
+            
+            db_path = os.path.abspath(db_path)
+            db_meta_path = os.path.abspath(db_meta_path)
+            
+            logger.info(f"[CATEGORIES] Fresh vectorDB load - Index: {db_path}")
+            
+            # 데이터베이스 파일 존재 확인 및 로드
+            if os.path.exists(db_path) and os.path.exists(db_meta_path):
+                if not vectorizer.load_database(db_path, db_meta_path):
+                    logger.warning("[CATEGORIES] Failed to load database")
+                    return {
+                        "status": "success",
+                        "categories": {},
+                        "total_categories": 0,
+                        "message": "데이터베이스 파일 로드 실패"
+                    }, 200
+            else:
+                logger.info(f"[CATEGORIES] Database files not found")
+                return {
+                    "status": "success",
+                    "categories": {},
+                    "total_categories": 0,
+                    "message": "저장된 데이터가 없습니다"
+                }, 200
+            
+            # 검색 엔진으로 카테고리 조회
+            search_engine = FurnitureSearchEngine(vectorizer)
             categories = search_engine.get_categories()
 
             return {
@@ -211,29 +278,75 @@ class Categories(Resource):
             }, 200
 
         except Exception as e:
-            logger.error(f"Error fetching categories: {e}")
+            logger.error(f"Error fetching categories: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}, 500
 
 
 @api.route("/statistics")
 class Statistics(Resource):
-    """데이터베이스 통계"""
+    """데이터베이스 통계 (관리자용 - 실시간 조회)"""
 
     def get(self):
         """
-        데이터베이스의 통계 정보 조회
+        데이터베이스의 통계 정보 조회 (매번 fresh하게 vectorDB에서 읽음)
+        
+        이 엔드포인트는 관리자용이므로 캐싱하지 않고 항상 현재 상태를 반환합니다.
 
         Returns:
             JSON: 통계 정보
         """
         try:
-            search_engine = get_search_engine()
+            # 매번 fresh하게 vectorizer와 search_engine 생성 (캐싱 없음)
+            vectorizer = CLIPVectorizer()
+            
+            # 애플리케이션 컨텍스트에서 UPLOAD_FOLDER 가져오기
+            if current_app:
+                upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
+            else:
+                upload_folder = os.path.abspath("uploads")
+            
+            # 데이터베이스 로드
+            db_path = os.path.join(upload_folder, "furniture_index.faiss")
+            db_meta_path = os.path.join(upload_folder, "furniture_metadata.pkl")
+            
+            db_path = os.path.abspath(db_path)
+            db_meta_path = os.path.abspath(db_meta_path)
+            
+            logger.info(f"[STATISTICS] Fresh vectorDB load - Index: {db_path}, Metadata: {db_meta_path}")
+            
+            # 데이터베이스 파일 존재 확인
+            if os.path.exists(db_path) and os.path.exists(db_meta_path):
+                if vectorizer.load_database(db_path, db_meta_path):
+                    logger.info(f"[STATISTICS] Database loaded: {vectorizer.index.ntotal} items")
+                else:
+                    logger.warning("[STATISTICS] Failed to load database")
+                    return {"status": "success", "statistics": {
+                        "total_items": 0,
+                        "total_categories": 0,
+                        "categories": {},
+                        "vector_dimension": vectorizer.dimension,
+                        "device": vectorizer.device,
+                        "message": "데이터베이스 파일 로드 실패"
+                    }}, 200
+            else:
+                logger.info(f"[STATISTICS] Database files not found")
+                return {"status": "success", "statistics": {
+                    "total_items": 0,
+                    "total_categories": 0,
+                    "categories": {},
+                    "vector_dimension": vectorizer.dimension,
+                    "device": vectorizer.device,
+                    "message": "저장된 데이터가 없습니다"
+                }}, 200
+            
+            # 검색 엔진으로 통계 조회
+            search_engine = FurnitureSearchEngine(vectorizer)
             stats = search_engine.get_statistics()
 
             return {"status": "success", "statistics": stats}, 200
 
         except Exception as e:
-            logger.error(f"Error fetching statistics: {e}")
+            logger.error(f"Error fetching statistics: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}, 500
 
 

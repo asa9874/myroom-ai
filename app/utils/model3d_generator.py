@@ -67,14 +67,20 @@ class Model3DGenerator:
         member_id: int,
         seed: int = 42,
         ss_guidance_strength: float = 7.5,
-        ss_sampling_steps: int = 30,
+        ss_sampling_steps: int = 20,  # 최적화: 기본값 30 → 20 (33% 빠름)
         slat_guidance_strength: float = 7.5,
-        slat_sampling_steps: int = 30,
-        mesh_simplify_ratio: float = 0.95,
-        texture_size: int = 1024
+        slat_sampling_steps: int = 20,  # 최적화: 기본값 30 → 20 (33% 빠름)
+        mesh_simplify_ratio: float = 0.85,  # 최적화: 기본값 0.95 → 0.85 (더 단순한 메시)
+        texture_size: int = 512  # 최적화: 기본값 1024 → 512 (텍스처 처리 75% 빠름)
     ) -> str:
         """
         실제 AI API를 사용하여 3D 모델 생성
+        
+        성능 최적화 정보:
+        - ss_sampling_steps: 20 (기본값 30 → 감소 권장, ~33% 빠름)
+        - slat_sampling_steps: 20 (기본값 30 → 감소 권장, ~33% 빠름)
+        - mesh_simplify_ratio: 0.85 (기본값 0.95 → 감소, 메시 복잡도 감소)
+        - texture_size: 512 (기본값 1024 → 감소, 텍스처 처리 시간 대폭 단축)
         
         Args:
             image_path: 입력 이미지 경로
@@ -82,11 +88,11 @@ class Model3DGenerator:
             member_id: 사용자 ID (파일명에 사용)
             seed: 랜덤 시드 (기본값: 42)
             ss_guidance_strength: 첫 번째 단계 가이던스 강도 (기본값: 7.5)
-            ss_sampling_steps: 첫 번째 단계 샘플링 스텝 수 (기본값: 30)
+            ss_sampling_steps: 첫 번째 단계 샘플링 스텝 수 (최적화: 20 추천)
             slat_guidance_strength: 두 번째 단계 가이던스 강도 (기본값: 7.5)
-            slat_sampling_steps: 두 번째 단계 샘플링 스텝 수 (기본값: 30)
-            mesh_simplify_ratio: 메시 단순화 비율 (기본값: 0.95)
-            texture_size: 텍스처 크기 (기본값: 1024)
+            slat_sampling_steps: 두 번째 단계 샘플링 스텝 수 (최적화: 20 추천)
+            mesh_simplify_ratio: 메시 단순화 비율 (최적화: 0.85 추천)
+            texture_size: 텍스처 크기 (최적화: 512 추천, 품질 vs 속도 균형)
             
         Returns:
             생성된 3D 모델 파일 경로 (.glb)

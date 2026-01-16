@@ -106,12 +106,20 @@ class CLIPVectorizer:
         self, image_path: str, furniture_type: str, metadata_dict: Optional[Dict] = None
     ) -> bool:
         """
-        단일 이미지를 데이터베이스에 추가
+        단일 이미지를 데이터베이스에 추가 (3D 모델 생성 전 메타데이터와 함께 저장)
+
+        메타데이터 구조:
+        - model3d_id: 3D 모델 ID (DB)
+        - furniture_type: 가구 타입
+        - image_path: 이미지 파일 경로
+        - is_shared: 공유 여부
+        - member_id: 회원 ID
+        - filename: 이미지 파일명
 
         Args:
             image_path: 이미지 파일 경로
             furniture_type: 가구 타입
-            metadata_dict: 추가 메타데이터
+            metadata_dict: 추가 메타데이터 (model3d_id, is_shared, member_id 포함)
 
         Returns:
             성공 여부
@@ -127,21 +135,24 @@ class CLIPVectorizer:
             if embedding is None:
                 return False
 
-            # 메타데이터 생성
+            # 메타데이터 생성 (기본 정보)
             meta = {
                 "furniture_type": furniture_type,
                 "image_path": image_path,
                 "filename": os.path.basename(image_path),
             }
 
+            # 추가 메타데이터 병합 (model3d_id, is_shared, member_id 등)
             if metadata_dict:
                 meta.update(metadata_dict)
 
-            # FAISS 인덱스에 추가
+            # FAISS 인덱스에 추가 (이미지 임베딩 저장)
             self.index.add(embedding)
+            # 메타데이터 저장 (3D 모델 생성 시 참조용)
             self.metadata.append(meta)
 
-            logger.debug(f"Added image: {image_path}")
+            logger.info(f"Added image to vector DB: {image_path}")
+            logger.debug(f"Metadata: {meta}")
             return True
 
         except Exception as e:
