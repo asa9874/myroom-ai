@@ -70,7 +70,11 @@ class CLIPVectorizer:
 
             # L2 정규화
             features = features / features.norm(p=2, dim=-1, keepdim=True)
-            return features.cpu().numpy().astype("float32")
+            embedding = features.cpu().numpy().astype("float32")
+            # FAISS는 2D 배열 필요: (1, dimension) 형태로 reshape
+            if embedding.ndim == 1:
+                embedding = embedding.reshape(1, -1)
+            return embedding
 
         except Exception as e:
             logger.error(f"Error processing image: {e}")
@@ -96,7 +100,11 @@ class CLIPVectorizer:
 
             # L2 정규화
             features = features / features.norm(p=2, dim=-1, keepdim=True)
-            return features.cpu().numpy().astype("float32")
+            embedding = features.cpu().numpy().astype("float32")
+            # FAISS는 2D 배열 필요: (1, dimension) 형태로 reshape
+            if embedding.ndim == 1:
+                embedding = embedding.reshape(1, -1)
+            return embedding
 
         except Exception as e:
             logger.error(f"Error processing text: {e}")
@@ -146,6 +154,10 @@ class CLIPVectorizer:
             if metadata_dict:
                 meta.update(metadata_dict)
 
+            # 임베딩이 1D인 경우 2D로 변환 (FAISS 요구사항)
+            if embedding.ndim == 1:
+                embedding = embedding.reshape(1, -1)
+            
             # FAISS 인덱스에 추가 (이미지 임베딩 저장)
             self.index.add(embedding)
             # 메타데이터 저장 (3D 모델 생성 시 참조용)

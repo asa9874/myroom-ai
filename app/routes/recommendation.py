@@ -162,7 +162,459 @@ recommendation_result = api.model(
 # ==================== 라우트 정의 ====================
 
 
-@api.route("/health")
+@api.route("/metadata")
+class MetadataList(Resource):
+    """VectorDB에 저장된 모든 메타데이터 조회"""
+
+    def get(self):
+        """
+        VectorDB에 저장된 모든 메타데이터 리스트 조회
+
+        쿼리 파라미터:
+        - skip: 시작 인덱스 (기본값: 0)
+        - limit: 조회할 개수 (기본값: 100)
+        - furniture_type: 특정 가구 타입 필터링 (선택사항)
+
+        Returns:
+            JSON: 메타데이터 리스트 및 통계
+        """
+        try:
+            # 쿼리 파라미터
+            skip = int(request.args.get("skip", 0))
+            limit = int(request.args.get("limit", 100))
+            furniture_type = request.args.get("furniture_type", None)
+
+            # 범위 검증
+            skip = max(0, skip)
+            limit = max(1, min(limit, 1000))  # 최대 1000개까지만
+
+            vectorizer = get_vectorizer()
+            
+            # 🔥 FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
+            if current_app:
+                upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
+            else:
+                upload_folder = os.path.abspath("uploads")
+            
+            db_path = os.path.join(upload_folder, "furniture_index.faiss")
+            db_meta_path = os.path.join(upload_folder, "furniture_metadata.pkl")
+            
+            # 파일이 존재하면 다시 로드 (항상 최신 상태 유지)
+            if os.path.exists(db_path) and os.path.exists(db_meta_path):
+                vectorizer.load_database(db_path, db_meta_path)
+
+            if vectorizer.index.ntotal == 0:
+                return {
+                    "status": "success",
+                    "total_count": 0,
+                    "filtered_count": 0,
+                    "metadata_list": [],
+                    "pagination": {
+                        "skip": skip,
+                        "limit": limit,
+                        "total_pages": 0,
+                        "current_page": 0,
+                    },
+                }, 200
+
+            # 필터링 (furniture_type 지정 시)
+            filtered_metadata = vectorizer.metadata
+
+            if furniture_type:
+                filtered_metadata = [
+                    m for m in vectorizer.metadata
+                    if m.get("furniture_type") == furniture_type
+                ]
+
+            total_count = len(vectorizer.metadata)
+            filtered_count = len(filtered_metadata)
+            
+            # 페이지네이션
+            start_idx = skip
+            end_idx = skip + limit
+            paginated_data = filtered_metadata[start_idx:end_idx]
+
+            # 응답 구성
+            metadata_list = []
+            for idx, meta in enumerate(paginated_data):
+                metadata_list.append({
+                    "index": start_idx + idx,
+                    "furniture_type": meta.get("furniture_type"),
+                    "image_path": meta.get("image_path"),
+                    "filename": meta.get("filename"),
+                    "metadata": {
+                        k: v for k, v in meta.items()
+                        if k not in ["image_path", "furniture_type", "filename"]
+                    }
+                })
+
+            total_pages = (filtered_count + limit - 1) // limit
+            current_page = (skip // limit) + 1 if filtered_count > 0 else 0
+
+            logger.info(f"Metadata list retrieved: total={total_count}, filtered={filtered_count}, returned={len(metadata_list)}")
+
+            return {
+                "status": "success",
+                "total_count": total_count,
+                "filtered_count": filtered_count,
+                "metadata_list": metadata_list,
+                "pagination": {
+                    "skip": skip,
+                    "limit": limit,
+                    "total_pages": total_pages,
+                    "current_page": current_page,
+                },
+                "filters": {
+                    "furniture_type": furniture_type,
+                },
+            }, 200
+
+        except ValueError as e:
+            logger.error(f"Invalid parameter: {e}")
+            return {
+                "status": "error",
+                "message": f"잘못된 파라미터: {str(e)}",
+            }, 400
+        except Exception as e:
+            logger.error(f"Error retrieving metadata: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
+    def delete(self):
+        """
+        VectorDB 메타데이터 초기화 (전체 삭제)
+
+        Returns:
+            JSON: 초기화 결과
+        """
+        try:
+            vectorizer = get_vectorizer()
+
+            if vectorizer.index.ntotal == 0:
+                return {
+                    "status": "warning",
+                    "message": "VectorDB가 이미 비어있습니다",
+                }, 200
+
+            # 메타데이터 초기화
+            old_count = vectorizer.index.ntotal
+            vectorizer.metadata = []
+            vectorizer.index.reset()
+
+            logger.warning(f"VectorDB cleared: {old_count} items removed")
+
+            return {
+                "status": "success",
+                "message": "VectorDB 초기화 완료",
+                "cleared_count": old_count,
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error clearing metadata: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
+
+@api.route("/metadata/<int:index>")
+class MetadataDetail(Resource):
+    """특정 메타데이터 상세 조회"""
+
+    def get(self, index: int):
+        """
+        특정 인덱스의 메타데이터 상세 조회
+
+        Args:
+            index: 메타데이터 인덱스
+
+        Returns:
+            JSON: 메타데이터 상세 정보
+        """
+        try:
+            vectorizer = get_vectorizer()
+            
+            # 🔥 FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
+            if current_app:
+                upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
+            else:
+                upload_folder = os.path.abspath("uploads")
+            
+            db_path = os.path.join(upload_folder, "furniture_index.faiss")
+            db_meta_path = os.path.join(upload_folder, "furniture_metadata.pkl")
+            
+            # 파일이 존재하면 다시 로드 (항상 최신 상태 유지)
+            if os.path.exists(db_path) and os.path.exists(db_meta_path):
+                vectorizer.load_database(db_path, db_meta_path)
+
+            if index < 0 or index >= len(vectorizer.metadata):
+                return {
+                    "status": "error",
+                    "message": f"유효하지 않은 인덱스: {index} (범위: 0-{len(vectorizer.metadata)-1})",
+                }, 404
+
+            meta = vectorizer.metadata[index]
+
+            return {
+                "status": "success",
+                "index": index,
+                "furniture_type": meta.get("furniture_type"),
+                "image_path": meta.get("image_path"),
+                "filename": meta.get("filename"),
+                "metadata": {
+                    k: v for k, v in meta.items()
+                    if k not in ["image_path", "furniture_type", "filename"]
+                },
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error retrieving metadata detail: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
+    def delete(self, index: int):
+        """
+        특정 인덱스의 메타데이터 삭제
+
+        Args:
+            index: 메타데이터 인덱스
+
+        Returns:
+            JSON: 삭제 결과
+        """
+        try:
+            vectorizer = get_vectorizer()
+
+            if index < 0 or index >= len(vectorizer.metadata):
+                return {
+                    "status": "error",
+                    "message": f"유효하지 않은 인덱스: {index}",
+                }, 404
+
+            # 메타데이터 삭제 (주의: FAISS 인덱스는 삭제할 수 없으므로 메타만 삭제)
+            deleted_meta = vectorizer.metadata.pop(index)
+
+            logger.warning(f"Metadata at index {index} deleted: {deleted_meta.get('filename')}")
+
+            return {
+                "status": "success",
+                "message": f"인덱스 {index}의 메타데이터 삭제 완료",
+                "deleted_item": {
+                    "filename": deleted_meta.get("filename"),
+                    "furniture_type": deleted_meta.get("furniture_type"),
+                },
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error deleting metadata: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
+
+@api.route("/vectordb/reset")
+class VectorDBReset(Resource):
+    """VectorDB 초기화 (완전 재설정)"""
+
+    def post(self):
+        """
+        VectorDB를 완전히 초기화합니다.
+        
+        기존 FAISS 인덱스 파일과 메타데이터 파일을 삭제하고
+        새로운 빈 VectorDB를 생성합니다.
+
+        Returns:
+            JSON: 초기화 결과
+        """
+        try:
+            upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
+            os.makedirs(upload_folder, exist_ok=True)
+
+            db_path = os.path.join(upload_folder, "furniture_index.faiss")
+            db_meta_path = os.path.join(upload_folder, "furniture_metadata.pkl")
+
+            db_path = os.path.abspath(db_path)
+            db_meta_path = os.path.abspath(db_meta_path)
+
+            # 기존 파일 삭제
+            deleted_files = []
+
+            if os.path.exists(db_path):
+                try:
+                    os.remove(db_path)
+                    deleted_files.append(db_path)
+                    logger.warning(f"Deleted FAISS index file: {db_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete FAISS index: {e}")
+                    return {
+                        "status": "error",
+                        "message": f"FAISS 인덱스 파일 삭제 실패: {str(e)}",
+                    }, 500
+
+            if os.path.exists(db_meta_path):
+                try:
+                    os.remove(db_meta_path)
+                    deleted_files.append(db_meta_path)
+                    logger.warning(f"Deleted metadata file: {db_meta_path}")
+                except Exception as e:
+                    logger.error(f"Failed to delete metadata: {e}")
+                    return {
+                        "status": "error",
+                        "message": f"메타데이터 파일 삭제 실패: {str(e)}",
+                    }, 500
+
+            # 새로운 빈 VectorDB 생성
+            try:
+                vectorizer = CLIPVectorizer()
+                
+                # 빈 상태로 저장
+                vectorizer.save_database(db_path, db_meta_path)
+                
+                logger.info(f"New empty VectorDB created at {db_path}")
+                
+                return {
+                    "status": "success",
+                    "message": "VectorDB 완전 초기화 완료",
+                    "deleted_files": deleted_files,
+                    "new_vectordb": {
+                        "index_path": db_path,
+                        "metadata_path": db_meta_path,
+                        "total_items": 0,
+                    },
+                }, 200
+
+            except Exception as e:
+                logger.error(f"Failed to create new VectorDB: {e}")
+                return {
+                    "status": "error",
+                    "message": f"새로운 VectorDB 생성 실패: {str(e)}",
+                }, 500
+
+        except Exception as e:
+            logger.error(f"Error resetting VectorDB: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
+
+@api.route("/vectordb/status")
+class VectorDBStatus(Resource):
+    """VectorDB 상태 조회"""
+
+    def get(self):
+        """
+        VectorDB의 현재 상태 조회
+        (파일 존재 여부, 크기, 아이템 수 등)
+
+        Returns:
+            JSON: VectorDB 상태 정보
+        """
+        try:
+            upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
+            db_path = os.path.join(upload_folder, "furniture_index.faiss")
+            db_meta_path = os.path.join(upload_folder, "furniture_metadata.pkl")
+
+            db_path = os.path.abspath(db_path)
+            db_meta_path = os.path.abspath(db_meta_path)
+
+            vectorizer = get_vectorizer()
+            
+            # 🔥 FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
+            if os.path.exists(db_path) and os.path.exists(db_meta_path):
+                vectorizer.load_database(db_path, db_meta_path)
+
+            index_exists = os.path.exists(db_path)
+            metadata_exists = os.path.exists(db_meta_path)
+
+            index_size = 0
+            metadata_size = 0
+
+            if index_exists:
+                index_size = os.path.getsize(db_path)
+
+            if metadata_exists:
+                metadata_size = os.path.getsize(db_meta_path)
+
+            # 가구 타입별 통계
+            furniture_stats = {}
+            for meta in vectorizer.metadata:
+                ftype = meta.get("furniture_type", "unknown")
+                furniture_stats[ftype] = furniture_stats.get(ftype, 0) + 1
+
+            logger.info(f"VectorDB status: items={vectorizer.index.ntotal}, size={index_size + metadata_size} bytes")
+
+            return {
+                "status": "success",
+                "vectordb": {
+                    "total_items": vectorizer.index.ntotal,
+                    "index_file": {
+                        "path": db_path,
+                        "exists": index_exists,
+                        "size_bytes": index_size,
+                        "size_mb": round(index_size / (1024 * 1024), 2),
+                    },
+                    "metadata_file": {
+                        "path": db_meta_path,
+                        "exists": metadata_exists,
+                        "size_bytes": metadata_size,
+                        "size_mb": round(metadata_size / (1024 * 1024), 2),
+                    },
+                    "total_size_mb": round((index_size + metadata_size) / (1024 * 1024), 2),
+                    "furniture_types": furniture_stats,
+                    "is_empty": vectorizer.index.ntotal == 0,
+                },
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error checking VectorDB status: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
+
+        """
+        VectorDB 메타데이터 통계
+
+        Returns:
+            JSON: 통계 정보
+        """
+        try:
+            vectorizer = get_vectorizer()
+
+            total_count = len(vectorizer.metadata)
+
+            if total_count == 0:
+                return {
+                    "status": "success",
+                    "total_count": 0,
+                    "furniture_types": {},
+                    "unique_files": 0,
+                }, 200
+
+            # 가구 타입별 통계
+            furniture_stats = {}
+            unique_files = set()
+
+            for meta in vectorizer.metadata:
+                ftype = meta.get("furniture_type", "unknown")
+                furniture_stats[ftype] = furniture_stats.get(ftype, 0) + 1
+
+                filename = meta.get("filename")
+                if filename:
+                    unique_files.add(filename)
+
+            logger.info(f"Metadata statistics: total={total_count}, types={len(furniture_stats)}")
+
+            return {
+                "status": "success",
+                "total_count": total_count,
+                "furniture_types": furniture_stats,
+                "unique_files": len(unique_files),
+                "type_distribution": [
+                    {
+                        "type": ftype,
+                        "count": count,
+                        "percentage": round((count / total_count) * 100, 2),
+                    }
+                    for ftype, count in sorted(furniture_stats.items(), key=lambda x: x[1], reverse=True)
+                ],
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error retrieving statistics: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
+
+
 class HealthCheck(Resource):
     """서비스 상태 확인 (관리자용 - 실시간 조회)"""
 

@@ -240,21 +240,23 @@ class Model3DConsumer:
             image_path = self._save_image(image_data, member_id)
             logger.info(f"이미지 저장 완료: {image_path}")
             
-            # 3. 벡터DB 메타데이터 저장 (3D 모델 생성 전)
-            # 메타데이터: 3d_model_id, furniture_type, image_path, is_shared
+            # 3. AI 모델로 3D 생성 (실제 API 호출)
+            logger.info("3D 모델 생성 중... (수 분 소요 가능)")
+            model_3d_path = self._generate_3d_model(image_path, member_id)
+            logger.info(f"3D 모델 생성 완료: {model_3d_path}")
+            
+            # 4. 🎯 3D 모델 생성 성공 후 VectorDB에 메타데이터 저장
+            # 생성 성공한 모델 정보를 메타데이터에 포함
+            logger.info("VectorDB에 메타데이터 저장 중...")
             metadata_saved = self._save_metadata_to_vectordb(
                 image_path=image_path,
                 member_id=member_id,
                 model3d_id=model3d_id,
+                model3d_path=model_3d_path,  # 🆕 생성된 3D 모델 경로 포함
                 furniture_type=furniture_type,
                 is_shared=is_shared
             )
-            logger.info(f"메타데이터 저장: {'성공' if metadata_saved else '실패'}")
-            
-            # 4. AI 모델로 3D 생성 (실제 API 호출)
-            logger.info("3D 모델 생성 중... (수 분 소요 가능)")
-            model_3d_path = self._generate_3d_model(image_path, member_id)
-            logger.info(f"3D 모델 생성 완료: {model_3d_path}")
+            logger.info(f"VectorDB 메타데이터 저장: {'성공' if metadata_saved else '실패'}")
             
             # 5. 처리 로그 저장 (선택사항)
             self._save_processing_log(member_id, image_url, model_3d_path, model3d_id, furniture_type, is_shared)
@@ -398,7 +400,7 @@ class Model3DConsumer:
         )
     
     def _save_metadata_to_vectordb(self, image_path: str, member_id: int, model3d_id: int,
-                                   furniture_type: str = None, is_shared: bool = False) -> bool:
+                                   model3d_path: str = None, furniture_type: str = None, is_shared: bool = False) -> bool:
         """
         벡터DB에 메타데이터 저장 (이미지와 함께 학습용 메타정보 저장)
         
@@ -406,6 +408,7 @@ class Model3DConsumer:
             image_path: 이미지 파일 경로
             member_id: 회원 ID
             model3d_id: 3D 모델 ID (DB)
+            model3d_path: 생성된 3D 모델 경로 (선택사항, 성공 시에만)
             furniture_type: 가구 타입
             is_shared: 공유 여부
             
@@ -413,18 +416,35 @@ class Model3DConsumer:
             저장 성공 여부
         """
         try:
-            from .clip_vectorizer import CLIPVectorizer
+            # ✅ 올바른 임포트 경로: app.recommand에서 가져오기
+            from app.recommand.clip_vectorizer import CLIPVectorizer
+            import os
             
-            # CLIPVectorizer 인스턴스 생성 (싱글톤 패턴으로 변경 권장)
+            # 🔥 FIX: 새 인스턴스 생성 후 기존 데이터를 먼저 로드!
             vectorizer = CLIPVectorizer()
             
-            # 메타데이터 딕셔너리 생성 (3d_model_id, furniture_type, image_path, is_shared)
+            # 기존 VectorDB 데이터가 있으면 로드 (덮어씌우지 않도록!)
+            upload_folder = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), '..', '..', 'uploads')
+            )
+            db_index_path = os.path.join(upload_folder, 'furniture_index.faiss')
+            db_metadata_path = os.path.join(upload_folder, 'furniture_metadata.pkl')
+            
+            # 기존 데이터 로드 (있으면)
+            if os.path.exists(db_index_path) and os.path.exists(db_metadata_path):
+                logger.info(f"기존 VectorDB 로드 중: {db_index_path}")
+                vectorizer.load_database(db_index_path, db_metadata_path)
+                logger.info(f"✅ 기존 VectorDB 로드 완료: {vectorizer.index.ntotal} items")
+            
+            # 메타데이터 딕셔너리 생성 (🆕 3D 모델 경로 포함)
             metadata_dict = {
                 "model3d_id": model3d_id,
                 "furniture_type": furniture_type if furniture_type else "unknown",
                 "image_path": image_path,
+                "model3d_path": model3d_path,  # 🆕 생성된 3D 모델 경로
                 "is_shared": is_shared,
-                "member_id": member_id
+                "member_id": member_id,
+                "created_at": datetime.now().isoformat()  # 🆕 생성 시간
             }
             
             # 벡터DB에 추가 (이미지 임베딩 + 메타데이터)
@@ -435,11 +455,30 @@ class Model3DConsumer:
             )
             
             if success:
-                logger.info(f"벡터DB 메타데이터 저장 성공: model3dId={model3d_id}, furnitureType={furniture_type}")
-                # 벡터DB 저장 (필요시 활성화)
-                # vectorizer.save_database(self.config.get('VECTORDB_PATH', 'vectordb.pkl'))
+                logger.info(f"✅ 벡터DB 메타데이터 저장 성공:")
+                logger.info(f"   - model3dId: {model3d_id}")
+                logger.info(f"   - furnitureType: {furniture_type}")
+                logger.info(f"   - imagePath: {image_path}")
+                logger.info(f"   - model3dPath: {model3d_path}")
+                logger.info(f"   - memberId: {member_id}")
+                
+                # 🔥 CRITICAL: 벡터DB를 디스크에 저장해야 조회 가능!
+                import os
+                upload_folder = os.path.abspath(
+                    os.path.join(os.path.dirname(__file__), '..', '..', 'uploads')
+                )
+                os.makedirs(upload_folder, exist_ok=True)
+                
+                db_index_path = os.path.join(upload_folder, 'furniture_index.faiss')
+                db_metadata_path = os.path.join(upload_folder, 'furniture_metadata.pkl')
+                
+                # 디스크에 저장
+                if vectorizer.save_database(db_index_path, db_metadata_path):
+                    logger.info(f"VectorDB 메타데이터 저장: 성공")
+                else:
+                    logger.warning(f"VectorDB 메타데이터 디스크 저장 실패")
             else:
-                logger.warning(f"벡터DB 메타데이터 저장 실패: model3dId={model3d_id}")
+                logger.warning(f"❌ 벡터DB 메타데이터 저장 실패: model3dId={model3d_id}")
             
             return success
             
