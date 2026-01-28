@@ -11,6 +11,8 @@ RabbitMQ Consumer를 별도 스레드에서 실행하여 3D 모델 생성 요청
 """
 
 import os
+import sys
+import argparse
 from dotenv import load_dotenv
 from threading import Thread
 from app import create_app
@@ -19,6 +21,68 @@ from app.utils.recommendation_consumer import start_recommendation_consumer_thre
 
 # .env 파일에서 환경변수 로드
 load_dotenv()
+
+# 애플리케이션 생성
+app = create_app()
+
+
+def parse_arguments():
+    """
+    커맨드라인 인자 파싱
+    
+    Returns:
+        argparse.Namespace: 파싱된 인자들
+    """
+    parser = argparse.ArgumentParser(
+        description='MyRoom AI REST API 서버',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+예시:
+  python main.py -s3          # S3 업로드 활성화
+  python main.py -nos3        # S3 업로드 비활성화 (로컬 URL 사용)
+  python main.py -s3 -p 8080  # S3 업로드 활성화, 포트 8080 사용
+        '''
+    )
+    
+    # S3 옵션
+    s3_group = parser.add_mutually_exclusive_group()
+    s3_group.add_argument(
+        '-s3', '--use-s3',
+        action='store_true',
+        default=False,
+        help='S3에 3D 모델을 업로드합니다 (기본값: 비활성화)'
+    )
+    s3_group.add_argument(
+        '-nos3', '--no-s3',
+        action='store_true',
+        dest='no_s3',
+        help='S3 업로드를 비활성화하고 로컬 URL을 사용합니다'
+    )
+    
+    # 포트 옵션
+    parser.add_argument(
+        '-p', '--port',
+        type=int,
+        default=int(os.environ.get('PORT', 5000)),
+        help='서버 포트 (기본값: 5000)'
+    )
+    
+    # 호스트 옵션
+    parser.add_argument(
+        '-H', '--host',
+        default=os.environ.get('HOST', '0.0.0.0'),
+        help='서버 호스트 (기본값: 0.0.0.0)'
+    )
+    
+    # Debug 모드
+    parser.add_argument(
+        '-d', '--debug',
+        action='store_true',
+        help='Debug 모드 활성화'
+    )
+    
+    return parser.parse_args()
+
 
 # 애플리케이션 생성
 app = create_app()
@@ -42,11 +106,22 @@ def index():
 
 
 if __name__ == '__main__':
-    # 환경 변수에서 포트 번호 가져오기 (기본값: 5000)
-    port = int(os.environ.get('PORT', 5000))
+    # 커맨드라인 인자 파싱
+    args = parse_arguments()
     
-    # 환경 변수에서 호스트 가져오기 (기본값: 0.0.0.0)
-    host = os.environ.get('HOST', '0.0.0.0')
+    # S3 사용 여부 설정
+    use_s3 = args.use_s3 and not args.no_s3
+    app.config['USE_S3'] = use_s3
+    
+    # 로깅
+    s3_status = "✅ 활성화 (S3에 업로드)" if use_s3 else "❌ 비활성화 (로컬 URL 사용)"
+    app.logger.info(f"S3 업로드: {s3_status}")
+    
+    # 환경 변수에서 포트 번호 가져오기 (인자 우선)
+    port = args.port
+    
+    # 환경 변수에서 호스트 가져오기 (인자 우선)
+    host = args.host
     
     # RabbitMQ Consumer (3D 모델 생성)를 별도 스레드에서 시작
     try:
@@ -80,7 +155,7 @@ if __name__ == '__main__':
     
     # ⚠️ 성능 중요: 개발 중이어도 프로덕션 모드로 실행 권장
     # debug=True 시 Werkzeug reloader가 모든 파일을 계속 모니터링하여 CPU 과다 점유
-    debug_mode = app.config['DEBUG']
+    debug_mode = args.debug or app.config['DEBUG']
     use_reloader = False  # 파일 자동 재로드 비활성화
     use_debugger = False  # Debugger 비활성화
     

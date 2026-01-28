@@ -7,6 +7,10 @@
 
 import os
 from datetime import timedelta
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
 
 
 class Config:
@@ -61,6 +65,13 @@ class Config:
     VECTORDB_PATH = os.path.join(os.path.dirname(__file__), 'uploads', 'vectordb')
     VECTORDB_INDEX_FILE = 'furniture_index.pkl'
     VECTORDB_METADATA_FILE = 'furniture_metadata.json'
+    
+    # AWS S3 설정
+    AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+    AWS_S3_BUCKET_NAME = os.environ.get('AWS_S3_BUCKET_NAME', 'myroom-ai-models')
+    AWS_S3_REGION = os.environ.get('AWS_S3_REGION', 'ap-northeast-2')
+    AWS_S3_FOLDER = os.environ.get('AWS_S3_FOLDER', '3d-models')
     
     # Gemini API 설정 (google-genai 패키지용 올바른 모델명)
     # 공식 모델: gemini-2.5-flash, gemini-2.5-pro, gemini-3-flash, gemini-3-pro

@@ -4,6 +4,30 @@ echo   RabbitMQ + Flask AI Server 실행
 echo ======================================
 echo.
 
+REM 기본값: S3 사용 안 함 (-nos3)
+set S3_OPTION=-nos3
+
+REM 커맨드라인 인자 확인
+if "%1"=="-s3" (
+    set S3_OPTION=-s3
+    echo [설정] S3 업로드 활성화
+) else if "%1"=="-nos3" (
+    set S3_OPTION=-nos3
+    echo [설정] S3 업로드 비활성화 (로컬 URL 사용)
+) else if not "%1"=="" (
+    echo [경고] 알 수 없는 옵션: %1
+    echo.
+    echo 사용법:
+    echo   start_server.bat          - S3 비활성화 (기본값)
+    echo   start_server.bat -s3      - S3 활성화
+    echo   start_server.bat -nos3    - S3 비활성화 (명시적)
+    echo.
+    pause
+    exit /b 1
+)
+
+echo.
+
 REM 1. RabbitMQ Docker 컨테이너 실행 확인
 echo [1/3] RabbitMQ 서버 확인 중...
 docker ps | findstr rabbitmq >nul 2>&1
@@ -47,6 +71,12 @@ echo   - RabbitMQ 관리: http://localhost:15672
 echo     (Username: guest / Password: guest)
 echo ======================================
 echo.
+
+REM Flask 서버 실행 (S3 옵션 포함)
+python main.py %S3_OPTION%
+
+pause
+
 
 REM Flask 서버 실행
 python main.py

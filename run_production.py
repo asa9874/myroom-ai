@@ -5,11 +5,14 @@
 FastAPI 성능 저하를 방지합니다.
 
 사용 방법:
-    python run_production.py
+    python run_production.py              - S3 비활성화 (기본값)
+    python run_production.py -s3          - S3 활성화
+    python run_production.py -nos3        - S3 비활성화 (명시적)
 """
 
 import os
 import sys
+import argparse
 from dotenv import load_dotenv
 
 # .env 파일에서 환경변수 로드
@@ -29,6 +32,29 @@ from app.utils.rabbitmq_consumer import start_consumer_thread
 from app.utils.recommendation_consumer import start_recommendation_consumer_thread
 
 
+def parse_arguments():
+    """커맨드라인 인자 파싱"""
+    parser = argparse.ArgumentParser(
+        description='MyRoom AI REST API 서버 (프로덕션 모드)'
+    )
+    
+    s3_group = parser.add_mutually_exclusive_group()
+    s3_group.add_argument(
+        '-s3', '--use-s3',
+        action='store_true',
+        default=False,
+        help='S3에 3D 모델을 업로드합니다 (기본값: 비활성화)'
+    )
+    s3_group.add_argument(
+        '-nos3', '--no-s3',
+        action='store_true',
+        dest='no_s3',
+        help='S3 업로드를 비활성화하고 로컬 URL을 사용합니다'
+    )
+    
+    return parser.parse_args()
+
+
 @app.route('/')
 def index():
     """루트 경로"""
@@ -40,6 +66,17 @@ def index():
 
 
 if __name__ == '__main__':
+    # 커맨드라인 인자 파싱
+    args = parse_arguments()
+    
+    # S3 사용 여부 설정
+    use_s3 = args.use_s3 and not args.no_s3
+    app.config['USE_S3'] = use_s3
+    
+    # 로깅
+    s3_status = "✅ 활성화 (S3에 업로드)" if use_s3 else "❌ 비활성화 (로컬 URL 사용)"
+    app.logger.info(f"S3 업로드: {s3_status}")
+    
     port = int(os.environ.get('PORT', 5000))
     host = os.environ.get('HOST', '0.0.0.0')
     enable_consumers = os.environ.get('ENABLE_CONSUMERS', 'true').lower() == 'true'

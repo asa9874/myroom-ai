@@ -13,9 +13,10 @@ import requests
 import time
 from datetime import datetime
 from threading import Thread
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 
 from .model3d_generator import Model3DGenerator
+from .s3_manager import S3Manager
 
 logger = logging.getLogger(__name__)
 
@@ -150,11 +151,23 @@ class Model3DConsumer:
         self.connection = None
         self.channel = None
         
+        # 🆕 S3 사용 여부 (config에서 읽기, 기본값: False)
+        self.use_s3 = config.get('USE_S3', False)
+        
+        logger.info(f"S3 업로드 설정: {'활성화' if self.use_s3 else '비활성화'}")
+        
         # Producer 인스턴스 생성 (Spring Boot로 메시지 전송용)
         self.producer = RabbitMQProducer(config)
         
         # 3D 모델 생성기 인스턴스 생성
         self.model_generator = Model3DGenerator()
+        
+        # S3 Manager 인스턴스 생성 (S3 사용 시에만)
+        if self.use_s3:
+            self.s3_manager = S3Manager(config)
+        else:
+            self.s3_manager = None
+            logger.info("S3 Manager 비활성화됨 (로컬 URL 사용)")
         
     def callback(self, ch, method, properties, body):
         """
@@ -245,6 +258,24 @@ class Model3DConsumer:
             model_3d_path = self._generate_3d_model(image_path, member_id)
             logger.info(f"3D 모델 생성 완료: {model_3d_path}")
             
+            # 3-1. � S3 사용 여부에 따라 처리
+            if self.use_s3:
+                # S3에 업로드
+                logger.info("S3에 3D 모델 업로드 중...")
+                s3_upload_success, model_3d_url = self._upload_model_to_s3(
+                    model_3d_path, member_id, model3d_id
+                )
+                
+                if not s3_upload_success:
+                    raise Exception(f"S3 업로드 실패: {model_3d_url}")
+                
+                logger.info(f"✅ S3 업로드 성공: {model_3d_url}")
+            else:
+                # 로컬 URL 생성
+                logger.info("로컬 URL 생성 중...")
+                model_3d_url = f"http://localhost:5000/models/{os.path.basename(model_3d_path)}"
+                logger.info(f"✅ 로컬 URL 생성: {model_3d_url}")
+            
             # 4. 🎯 3D 모델 생성 성공 후 VectorDB에 메타데이터 저장
             # 생성 성공한 모델 정보를 메타데이터에 포함
             logger.info("VectorDB에 메타데이터 저장 중...")
@@ -265,9 +296,7 @@ class Model3DConsumer:
             processing_time = int(time.time() - start_time)
             
             # 7. Spring Boot로 성공 메시지 전송
-            # TODO: 실제 환경에서는 model_3d_url을 실제 접근 가능한 URL로 변경
-            model_3d_url = f"http://localhost:5000/models/{os.path.basename(model_3d_path)}"
-            
+            # 🎯 S3에서 반환받은 URL을 직접 사용
             self.producer.send_generation_response(
                 member_id=member_id,
                 model3d_id=model3d_id,  # model3d_id 추가
@@ -301,8 +330,11 @@ class Model3DConsumer:
             # 처리 시간 계산
             processing_time = int(time.time() - start_time)
             
-            # 실패 시에도 임시 URL 생성 (디버깅/추적용)
-            temp_model_3d_url = f"http://localhost:5000/models/failed_url_model3d_id_{model3d_id}_member_{member_id}.glb"
+            # 실패 URL 생성 (S3 사용 여부에 따라 다름)
+            if self.use_s3:
+                temp_model_3d_url = f"s3://{self.config.get('AWS_S3_BUCKET_NAME', 'unknown-bucket')}/error/failed_model3d_id_{model3d_id}_member_{member_id}.glb"
+            else:
+                temp_model_3d_url = f"http://localhost:5000/models/failed_url_model3d_id_{model3d_id}_member_{member_id}.glb"
             
             # Spring Boot로 실패 메시지 전송
             self.producer.send_generation_response(
@@ -398,6 +430,41 @@ class Model3DConsumer:
             mesh_simplify_ratio=0.85,      # 기본값 0.95 → 0.85 (더 단순한 메시)
             texture_size=512               # 기본값 1024 → 512 (75% 빠름, 여전히 충분한 품질)
         )
+    
+    def _upload_model_to_s3(self, model_3d_path: str, member_id: int, model3d_id: int) -> Tuple[bool, str]:
+        """
+        생성된 3D 모델을 S3에 업로드
+        
+        Args:
+            model_3d_path: 로컬 3D 모델 파일 경로
+            member_id: 회원 ID
+            model3d_id: 3D 모델 ID (DB)
+            
+        Returns:
+            (업로드 성공 여부, S3 URL 또는 에러 메시지) 튜플
+        """
+        try:
+            if not self.use_s3:
+                raise Exception("S3 업로드가 비활성화되었습니다.")
+            
+            if not self.s3_manager:
+                raise Exception("S3 Manager가 초기화되지 않았습니다. AWS 자격증명을 확인하세요.")
+            
+            if not self.s3_manager.is_available():
+                raise Exception("S3 서비스를 사용할 수 없습니다.")
+            
+            success, s3_url = self.s3_manager.upload_model_3d(
+                file_path=model_3d_path,
+                member_id=member_id,
+                model3d_id=model3d_id
+            )
+            
+            return success, s3_url
+            
+        except Exception as e:
+            logger.error(f"S3 업로드 중 오류: {e}", exc_info=True)
+            return False, str(e)
+    
     
     def _save_metadata_to_vectordb(self, image_path: str, member_id: int, model3d_id: int,
                                    model3d_path: str = None, furniture_type: str = None, is_shared: bool = False) -> bool:
