@@ -113,6 +113,12 @@ class ProductionConfig(Config):
     # 프로덕션에서는 반드시 환경 변수에서 SECRET_KEY를 가져와야 함
     SECRET_KEY = os.environ.get('SECRET_KEY')
     
+    # 프로덕션 환경에서 RabbitMQ는 EC2 인스턴스에서 실행 중이라고 가정
+    RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST') or 'your-ec2-instance-ip'  # EC2 IP 주소로 변경 필요
+    RABBITMQ_PORT = int(os.environ.get('RABBITMQ_PORT') or 5672)
+    RABBITMQ_USERNAME = os.environ.get('RABBITMQ_USERNAME') or 'your-username'
+    RABBITMQ_PASSWORD = os.environ.get('RABBITMQ_PASSWORD') or 'your-password'
+    
     @classmethod
     def init_app(cls, app):
         Config.init_app(app)
