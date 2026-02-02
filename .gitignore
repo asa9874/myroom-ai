@@ -64,3 +64,8 @@ uploads/*
 
 data
 yolov8n.pt
+
+
+test_images/
+multi_object_test/
+real_test_images/
