@@ -61,13 +61,13 @@ class S3Manager:
                 aws_secret_access_key=self.secret_key
             )
             
-            logger.info(f"✅ S3 클라이언트 초기화 성공: {self.bucket_name} ({self.region})")
+            logger.info(f"[OK] S3 클라이언트 초기화 성공: {self.bucket_name} ({self.region})")
             
         except (NoCredentialsError, ValueError) as e:
-            logger.error(f"❌ S3 클라이언트 초기화 실패: {e}")
+            logger.error(f"[FAIL] S3 클라이언트 초기화 실패: {e}")
             self.s3_client = None
         except Exception as e:
-            logger.error(f"❌ S3 클라이언트 초기화 중 오류: {e}")
+            logger.error(f"[FAIL] S3 클라이언트 초기화 중 오류: {e}")
             self.s3_client = None
     
     def upload_file(self, file_path: str, member_id: int, model3d_id: int,
@@ -118,7 +118,7 @@ class S3Manager:
             # S3 URL 생성
             s3_url = f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
             
-            logger.info(f"✅ S3 업로드 성공: {s3_url}")
+            logger.info(f"[OK] S3 업로드 성공: {s3_url}")
             
             return True, s3_url
             
@@ -223,7 +223,7 @@ class S3Manager:
                 Key=s3_key
             )
             
-            logger.info(f"✅ S3 파일 삭제 성공: {s3_key}")
+            logger.info(f"[OK] S3 파일 삭제 성공: {s3_key}")
             return True, f"File deleted: {s3_key}"
             
         except ClientError as e:

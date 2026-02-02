@@ -204,10 +204,12 @@ def register_routes(api):
     from app.routes.health import ns as health_ns
     from app.routes.recommendation import api as recommendation_ns
     from app.routes.recommendation import init_recommendation_system
+    from app.routes.image_quality import ns as image_quality_ns
     
     # 네임스페이스 추가
     api.add_namespace(health_ns, path='/health')
     api.add_namespace(recommendation_ns)
+    api.add_namespace(image_quality_ns, path='/api/image-quality')
     
     # 추천 시스템 초기화
     try:

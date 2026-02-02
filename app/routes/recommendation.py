@@ -190,7 +190,7 @@ class MetadataList(Resource):
 
             vectorizer = get_vectorizer()
             
-            # 🔥 FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
+            # FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
             if current_app:
                 upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
             else:
@@ -330,7 +330,7 @@ class MetadataDetail(Resource):
         try:
             vectorizer = get_vectorizer()
             
-            # 🔥 FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
+            # FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
             if current_app:
                 upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads")
             else:
@@ -510,7 +510,7 @@ class VectorDBStatus(Resource):
 
             vectorizer = get_vectorizer()
             
-            # 🔥 FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
+            # FIX: 매번 조회 시 디스크에서 최신 데이터를 다시 로드
             if os.path.exists(db_path) and os.path.exists(db_meta_path):
                 vectorizer.load_database(db_path, db_meta_path)
 
@@ -1020,13 +1020,13 @@ class AnalyzeRoom(Resource):
                     search_query, top_k, target_category
                 )
                 
-                # 🔥 FIX: Java DTO와 형식 일치하도록 memberId, timestamp 추가
+                # FIX: Java DTO와 형식 일치하도록 memberId, timestamp 추가
                 import time
                 member_id = request.args.get("member_id", None, type=int)  # 쿼리 파라미터에서 memberId 가져오기
 
                 return {
                     "status": "success",
-                    "member_id": member_id,  # 🆕 Java: memberId
+                    "member_id": member_id,  # Java: memberId
                     "room_analysis": room_context,
                     "recommendation": {
                         "target_category": target_category,
@@ -1035,7 +1035,7 @@ class AnalyzeRoom(Resource):
                         "results": recommendations,
                         "result_count": len(recommendations),
                     },
-                    "timestamp": int(time.time() * 1000),  # 🆕 Java: timestamp (Unix ms)
+                    "timestamp": int(time.time() * 1000),  # Java: timestamp (Unix ms)
                 }, 200
 
             finally:

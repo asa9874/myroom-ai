@@ -66,7 +66,7 @@ def process_recommendation_message(ch, method, properties, body):
         # 4. 벡터DB 확인
         vectorizer = get_vectorizer()
         if vectorizer.index.ntotal == 0:
-            logger.warning("⚠️  벡터DB가 비어있습니다. 초기화 필요")
+            logger.warning("[WARN] 벡터DB가 비어있습니다. 초기화 필요")
             response_message = {
                 "memberId": member_id,
                 "status": "warning",
@@ -75,7 +75,7 @@ def process_recommendation_message(ch, method, properties, body):
             }
         else:
             # 5. 이미지 분석
-            logger.info("📸 이미지 분석 중...")
+            logger.info("[이미지분석] 이미지 분석 중...")
             image_analyzer = get_image_analyzer()
             analysis_result = image_analyzer.analyze_image_comprehensive(
                 image_url, 
@@ -86,7 +86,7 @@ def process_recommendation_message(ch, method, properties, body):
             logger.info(f"    감지된 가구: {analysis_result['room_analysis'].get('detected_furniture', [])}")
             
             # 6. 가구 추천
-            logger.info(f"🔍 가구 추천 검색 중 (category={category}, topK={top_k})...")
+            logger.info(f"[SEARCH] 가구 추천 검색 중 (category={category}, topK={top_k})...")
             search_engine = get_search_engine()
             search_query = analysis_result['recommendation']['search_query']
             recommendations = search_engine.search_by_text(

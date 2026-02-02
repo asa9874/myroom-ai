@@ -2,6 +2,8 @@
 3D 모델 생성 유틸리티
 
 이미지를 3D 모델로 변환하는 AI API와 통신하는 모듈입니다.
+이미지 품질 검증 기능이 통합되어 있어 품질이 낮은 이미지는
+사전에 걸러냅니다.
 """
 
 import base64
@@ -10,12 +12,28 @@ import os
 import requests
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any, Tuple
+
+# 이미지 품질 검증 모듈 import
+from app.utils.image_quality import (
+    detailed_validate,
+    quick_validate,
+    pre_workflow_check,
+    get_image_score,
+    ImageQualityValidator
+)
 
 logger = logging.getLogger(__name__)
 
 # 3D 모델 생성 API 설정
 API_BASE_URL = "http://127.0.0.1:7960"
+
+# 품질 검증 설정
+QUALITY_THRESHOLDS = {
+    'minimum': 50,      # 이 점수 미만은 거부
+    'standard': 70,     # 표준 품질
+    'premium': 80       # 고품질
+}
 
 
 class Model3DGenerator:
@@ -23,16 +41,180 @@ class Model3DGenerator:
     3D 모델 생성을 담당하는 클래스
     
     이미지를 입력받아 AI API를 통해 3D 모델(.glb)을 생성합니다.
+    이미지 품질 검증 기능이 통합되어 있어 품질이 낮은 이미지는
+    사전에 걸러냅니다.
     """
     
-    def __init__(self, api_base_url: str = API_BASE_URL):
+    def __init__(self, api_base_url: str = API_BASE_URL, enable_quality_check: bool = True):
         """
         3D 모델 생성기 초기화
         
         Args:
             api_base_url: 3D 모델 생성 API의 기본 URL
+            enable_quality_check: 이미지 품질 검증 활성화 여부
         """
         self.api_base_url = api_base_url
+        self.enable_quality_check = enable_quality_check
+        self.quality_validator = None
+        
+        if enable_quality_check:
+            try:
+                self.quality_validator = ImageQualityValidator()
+                logger.info("이미지 품질 검증기 초기화 완료")
+            except Exception as e:
+                logger.warning(f"품질 검증기 초기화 실패 (기본 검증만 사용): {e}")
+    
+    def validate_image_quality(self, image_path: str, strict_mode: bool = False) -> Dict[str, Any]:
+        """
+        이미지 품질 사전 검증
+        
+        3D 모델 생성 전에 이미지 품질을 검증하여 실패 가능성을 사전에 판단합니다.
+        
+        Args:
+            image_path: 검증할 이미지 경로
+            strict_mode: 엄격 모드 (True: 80점 이상, False: 70점 이상)
+            
+        Returns:
+            Dict: 검증 결과
+            {
+                'can_proceed': bool,        # 3D 모델링 진행 가능 여부
+                'quality_tier': str,        # 'premium', 'standard', 'basic', 'rejected'
+                'score': float,             # 종합 점수 (0-100)
+                'issues': list,             # 발견된 문제점들
+                'recommendations': list,    # 개선 권장사항
+                'object_info': dict,        # 객체 감지 정보
+                'processing_params': dict   # 권장 처리 파라미터
+            }
+        """
+        result = {
+            'can_proceed': False,
+            'quality_tier': 'rejected',
+            'score': 0.0,
+            'scores': {},
+            'issues': [],
+            'recommendations': [],
+            'object_info': {},
+            'processing_params': {}
+        }
+        
+        if not self.enable_quality_check:
+            logger.info("품질 검증이 비활성화되어 있어 검증을 건너뜁니다")
+            result['can_proceed'] = True
+            result['quality_tier'] = 'unknown'
+            return result
+        
+        try:
+            logger.info(f"[검증] 이미지 품질 검증 시작: {image_path}")
+            
+            # 상세 품질 검증 수행
+            validation_result = detailed_validate(image_path)
+            
+            score = validation_result['overall_score']
+            result['score'] = score
+            result['issues'] = validation_result.get('issues', [])
+            result['recommendations'] = validation_result.get('recommendations', [])
+            
+            # 개별 점수 추출 (scores 필드)
+            raw_scores = validation_result.get('scores', {})
+            result['scores'] = {
+                'blur_score': raw_scores.get('blur'),
+                'brightness_score': raw_scores.get('brightness'),
+                'contrast_score': raw_scores.get('contrast'),
+                'object_score': raw_scores.get('object'),
+                'composition_score': raw_scores.get('composition')
+            }
+            
+            # 객체 정보 추출
+            if raw_scores.get('object_info'):
+                result['object_info'] = raw_scores['object_info']
+            
+            # 품질 등급 결정 (strict_mode에 따라 통과 기준이 다름)
+            # strict_mode=True: 80점 이상만 통과
+            # strict_mode=False: 50점 이상 통과
+            min_required_score = QUALITY_THRESHOLDS['premium'] if strict_mode else QUALITY_THRESHOLDS['minimum']
+            
+            if score >= QUALITY_THRESHOLDS['premium']:
+                result['quality_tier'] = 'premium'
+                result['can_proceed'] = True
+                result['processing_params'] = self._get_premium_params()
+                logger.info(f"[PREMIUM] 프리미엄 품질 ({score:.1f}점) - 최적의 3D 모델 생성 가능")
+                
+            elif score >= QUALITY_THRESHOLDS['standard']:
+                result['quality_tier'] = 'standard'
+                # strict_mode일 때는 80점 미만이면 거부
+                result['can_proceed'] = not strict_mode
+                result['processing_params'] = self._get_standard_params()
+                if strict_mode:
+                    logger.warning(f"[REJECTED] 표준 품질 ({score:.1f}점) - 엄격 모드에서 거부됨 (80점 이상 필요)")
+                else:
+                    logger.info(f"[STANDARD] 표준 품질 ({score:.1f}점) - 3D 모델 생성 가능")
+                
+            elif score >= QUALITY_THRESHOLDS['minimum']:
+                result['quality_tier'] = 'basic'
+                # strict_mode일 때는 80점 미만이면 거부
+                result['can_proceed'] = not strict_mode
+                result['processing_params'] = self._get_basic_params()
+                if strict_mode:
+                    logger.warning(f"[REJECTED] 기본 품질 ({score:.1f}점) - 엄격 모드에서 거부됨 (80점 이상 필요)")
+                else:
+                    logger.warning(f"[BASIC] 기본 품질 ({score:.1f}점) - 3D 모델 생성 가능하나 품질 저하 가능")
+                
+            else:
+                result['quality_tier'] = 'rejected'
+                result['can_proceed'] = False
+                logger.error(f"[REJECTED] 품질 미달 ({score:.1f}점) - 3D 모델 생성 불가")
+            
+            # 다중 객체 경고
+            obj_info = result['object_info']
+            if obj_info.get('detected_objects', 0) > 1:
+                if not obj_info.get('is_single_object', True):
+                    main_ratio = obj_info.get('main_object_ratio', 0)
+                    if main_ratio < 0.3:
+                        result['can_proceed'] = False
+                        result['quality_tier'] = 'rejected'
+                        result['issues'].append(f"주 객체가 불분명합니다 ({obj_info['detected_objects']}개 객체 감지)")
+                        result['recommendations'].append("단일 가구가 명확하게 보이도록 다시 촬영해주세요")
+                        logger.error(f"[REJECTED] 다중 객체로 인한 거부 - 주 객체 비율: {main_ratio:.1%}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"품질 검증 중 오류 발생: {e}")
+            result['issues'].append(f"품질 검증 오류: {str(e)}")
+            # 오류 발생 시 기본적으로 진행 허용 (품질 검증 실패가 전체 워크플로우를 막지 않도록)
+            result['can_proceed'] = True
+            result['quality_tier'] = 'unknown'
+            return result
+    
+    def _get_premium_params(self) -> Dict[str, Any]:
+        """프리미엄 품질 이미지용 파라미터"""
+        return {
+            'ss_sampling_steps': 25,
+            'slat_sampling_steps': 25,
+            'mesh_simplify_ratio': 0.90,
+            'texture_size': 1024,
+            'enhancement': 'minimal'
+        }
+    
+    def _get_standard_params(self) -> Dict[str, Any]:
+        """표준 품질 이미지용 파라미터"""
+        return {
+            'ss_sampling_steps': 20,
+            'slat_sampling_steps': 20,
+            'mesh_simplify_ratio': 0.85,
+            'texture_size': 512,
+            'enhancement': 'moderate'
+        }
+    
+    def _get_basic_params(self) -> Dict[str, Any]:
+        """기본 품질 이미지용 파라미터"""
+        return {
+            'ss_sampling_steps': 15,
+            'slat_sampling_steps': 15,
+            'mesh_simplify_ratio': 0.80,
+            'texture_size': 512,
+            'enhancement': 'aggressive'
+        }
     
     def image_to_base64(self, image_path: str) -> str:
         """
@@ -192,6 +374,153 @@ class Model3DGenerator:
         logger.info(f"파일 크기: {len(model_response.content)} bytes")
         
         return filepath
+    
+    def generate_3d_model_with_validation(
+        self,
+        image_path: str,
+        output_dir: str,
+        member_id: int,
+        strict_mode: bool = False,
+        seed: int = 42,
+        ss_guidance_strength: float = 7.5,
+        slat_guidance_strength: float = 7.5
+    ) -> Dict[str, Any]:
+        """
+        🚀 품질 검증이 통합된 3D 모델 생성 (권장 메서드)
+        
+        이미지 품질을 먼저 검증하고, 품질 등급에 따라 최적화된 파라미터로
+        3D 모델을 생성합니다.
+        
+        Args:
+            image_path: 입력 이미지 경로
+            output_dir: 생성된 모델을 저장할 디렉토리
+            member_id: 사용자 ID (파일명에 사용)
+            strict_mode: 엄격 모드 (True: 80점 이상 필요)
+            seed: 랜덤 시드
+            ss_guidance_strength: 첫 번째 단계 가이던스 강도
+            slat_guidance_strength: 두 번째 단계 가이던스 강도
+            
+        Returns:
+            Dict: 생성 결과
+            {
+                'success': bool,
+                'model_path': str or None,
+                'quality_validation': dict,     # 품질 검증 결과
+                'processing_time': float,       # 처리 시간 (초)
+                'error': str or None,           # 에러 메시지
+                'message': str                  # 사용자 친화적 메시지
+            }
+        """
+        import time
+        start_time = time.time()
+        
+        result = {
+            'success': False,
+            'model_path': None,
+            'quality_validation': {},
+            'processing_time': 0.0,
+            'error': None,
+            'message': ''
+        }
+        
+        try:
+            # 1. 이미지 품질 검증
+            logger.info("=" * 60)
+            logger.info("[STEP1] 이미지 품질 검증")
+            logger.info("=" * 60)
+            
+            quality_result = self.validate_image_quality(image_path, strict_mode)
+            result['quality_validation'] = quality_result
+            
+            # 품질 미달 시 조기 종료
+            if not quality_result['can_proceed']:
+                result['error'] = 'quality_failed'
+                result['message'] = f"[FAIL] 이미지 품질 미달 ({quality_result['score']:.1f}점)"
+                
+                if quality_result['issues']:
+                    result['message'] += f"\n문제점: {', '.join(quality_result['issues'][:2])}"
+                if quality_result['recommendations']:
+                    result['message'] += f"\n권장사항: {quality_result['recommendations'][0]}"
+                
+                logger.error(result['message'])
+                result['processing_time'] = time.time() - start_time
+                return result
+            
+            # 2. 품질 기반 파라미터 설정
+            logger.info("=" * 60)
+            logger.info("[STEP2] 품질 기반 파라미터 최적화")
+            logger.info("=" * 60)
+            
+            params = quality_result.get('processing_params', self._get_standard_params())
+            logger.info(f"품질 등급: {quality_result['quality_tier']}")
+            logger.info(f"적용 파라미터: {params}")
+            
+            # 다중 객체 경고 로깅
+            obj_info = quality_result.get('object_info', {})
+            if obj_info.get('detected_objects', 0) > 1:
+                logger.warning(f"[WARN] {obj_info['detected_objects']}개 객체 감지됨 - 주 객체 중심으로 처리")
+            
+            # 3. 3D 모델 생성
+            logger.info("=" * 60)
+            logger.info("[STEP3] 3D 모델 생성")
+            logger.info("=" * 60)
+            
+            model_path = self.generate_3d_model(
+                image_path=image_path,
+                output_dir=output_dir,
+                member_id=member_id,
+                seed=seed,
+                ss_guidance_strength=ss_guidance_strength,
+                ss_sampling_steps=params.get('ss_sampling_steps', 20),
+                slat_guidance_strength=slat_guidance_strength,
+                slat_sampling_steps=params.get('slat_sampling_steps', 20),
+                mesh_simplify_ratio=params.get('mesh_simplify_ratio', 0.85),
+                texture_size=params.get('texture_size', 512)
+            )
+            
+            result['success'] = True
+            result['model_path'] = model_path
+            result['message'] = f"[OK] 3D 모델 생성 완료 (품질: {quality_result['quality_tier']}, 점수: {quality_result['score']:.1f})"
+            
+            logger.info("=" * 60)
+            logger.info(result['message'])
+            logger.info("=" * 60)
+            
+        except Exception as e:
+            result['error'] = str(e)
+            result['message'] = f"[FAIL] 3D 모델 생성 실패: {str(e)}"
+            logger.error(result['message'], exc_info=True)
+        
+        result['processing_time'] = time.time() - start_time
+        logger.info(f"총 처리 시간: {result['processing_time']:.2f}초")
+        
+        return result
+    
+    def quick_quality_check(self, image_path: str) -> Tuple[bool, float, str]:
+        """
+        빠른 품질 검사 (3D 모델 생성 전 간단히 확인용)
+        
+        Args:
+            image_path: 이미지 경로
+            
+        Returns:
+            Tuple[bool, float, str]: (통과여부, 점수, 메시지)
+        """
+        try:
+            score = get_image_score(image_path)
+            
+            if score >= QUALITY_THRESHOLDS['premium']:
+                return True, score, f"[PREMIUM] 프리미엄 품질 ({score:.1f}점)"
+            elif score >= QUALITY_THRESHOLDS['standard']:
+                return True, score, f"[OK] 표준 품질 ({score:.1f}점)"
+            elif score >= QUALITY_THRESHOLDS['minimum']:
+                return True, score, f"[WARN] 기본 품질 ({score:.1f}점) - 품질 저하 가능"
+            else:
+                return False, score, f"[FAIL] 품질 미달 ({score:.1f}점) - 재촬영 필요"
+                
+        except Exception as e:
+            logger.warning(f"품질 검사 실패: {e}")
+            return True, 0.0, "[WARN] 품질 검사 실패 - 기본 모드로 진행"
     
     def check_api_health(self) -> bool:
         """

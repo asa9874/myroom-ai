@@ -60,6 +60,12 @@ class Config:
     # 3D 모델 저장 경로
     MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
     
+    # 이미지 품질 검증 설정
+    # QUALITY_CHECK_ENABLED: 품질 검증 활성화 여부
+    # QUALITY_CHECK_STRICT_MODE: 엄격 모드 (True: 80점 이상, False: 50점 이상)
+    QUALITY_CHECK_ENABLED = os.environ.get('QUALITY_CHECK_ENABLED', 'true').lower() == 'true'
+    QUALITY_CHECK_STRICT_MODE = os.environ.get('QUALITY_CHECK_STRICT_MODE', 'false').lower() == 'true'
+    
     # 벡터DB 설정 (CLIP 모델 기반 메타데이터 저장)
     # 메타데이터: 3d_model_id, furniture_type, image_path, is_shared, member_id
     VECTORDB_PATH = os.path.join(os.path.dirname(__file__), 'uploads', 'vectordb')

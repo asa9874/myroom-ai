@@ -18,6 +18,16 @@ from dotenv import load_dotenv
 # .env 파일에서 환경변수 로드
 load_dotenv()
 
+# ============================================
+# 프로덕션 모드: EC2 RabbitMQ 사용
+# main.py는 Docker RabbitMQ (localhost) 사용
+# ============================================
+os.environ['RABBITMQ_HOST'] = '43.201.36.211'
+os.environ['RABBITMQ_PORT'] = '5672'
+os.environ['RABBITMQ_USERNAME'] = 'guest'
+os.environ['RABBITMQ_PASSWORD'] = 'guest'
+print("[RabbitMQ] EC2 (43.201.36.211:5672) 연결 모드")
+
 # 프로덕션 모드 설정
 os.environ['FLASK_ENV'] = 'production'
 

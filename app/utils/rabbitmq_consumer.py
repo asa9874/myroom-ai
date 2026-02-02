@@ -21,6 +21,27 @@ from .s3_manager import S3Manager
 logger = logging.getLogger(__name__)
 
 
+class ImageQualityError(Exception):
+    """이미지 품질 검증 실패 예외"""
+    
+    def __init__(self, score: float, issues: list, recommendations: list, message: str = None):
+        self.score = score
+        self.issues = issues
+        self.recommendations = recommendations
+        self.message = message or f"이미지 품질 미달 ({score:.1f}점)"
+        super().__init__(self.message)
+    
+    def to_dict(self) -> dict:
+        """예외 정보를 딕셔너리로 변환"""
+        return {
+            'error_type': 'IMAGE_QUALITY_FAILED',
+            'score': self.score,
+            'issues': self.issues,
+            'recommendations': self.recommendations,
+            'message': self.message
+        }
+
+
 class RabbitMQProducer:
     """
     Flask에서 Spring Boot로 3D 모델 생성 완료 메시지를 전송하는 클래스
@@ -151,7 +172,7 @@ class Model3DConsumer:
         self.connection = None
         self.channel = None
         
-        # 🆕 S3 사용 여부 (config에서 읽기, 기본값: False)
+        # S3 사용 여부 (config에서 읽기, 기본값: False)
         self.use_s3 = config.get('USE_S3', False)
         
         logger.info(f"S3 업로드 설정: {'활성화' if self.use_s3 else '비활성화'}")
@@ -269,21 +290,21 @@ class Model3DConsumer:
                 if not s3_upload_success:
                     raise Exception(f"S3 업로드 실패: {model_3d_url}")
                 
-                logger.info(f"✅ S3 업로드 성공: {model_3d_url}")
+                logger.info(f"[OK] S3 업로드 성공: {model_3d_url}")
             else:
                 # 로컬 URL 생성
                 logger.info("로컬 URL 생성 중...")
                 model_3d_url = f"http://localhost:5000/models/{os.path.basename(model_3d_path)}"
-                logger.info(f"✅ 로컬 URL 생성: {model_3d_url}")
+                logger.info(f"[OK] 로컬 URL 생성: {model_3d_url}")
             
-            # 4. 🎯 3D 모델 생성 성공 후 VectorDB에 메타데이터 저장
+            # 4. 3D 모델 생성 성공 후 VectorDB에 메타데이터 저장
             # 생성 성공한 모델 정보를 메타데이터에 포함
             logger.info("VectorDB에 메타데이터 저장 중...")
             metadata_saved = self._save_metadata_to_vectordb(
                 image_path=image_path,
                 member_id=member_id,
                 model3d_id=model3d_id,
-                model3d_path=model_3d_path,  # 🆕 생성된 3D 모델 경로 포함
+                model3d_path=model_3d_path,  # 생성된 3D 모델 경로 포함
                 furniture_type=furniture_type,
                 is_shared=is_shared
             )
@@ -296,7 +317,7 @@ class Model3DConsumer:
             processing_time = int(time.time() - start_time)
             
             # 7. Spring Boot로 성공 메시지 전송
-            # 🎯 S3에서 반환받은 URL을 직접 사용
+            # S3에서 반환받은 URL을 직접 사용
             self.producer.send_generation_response(
                 member_id=member_id,
                 model3d_id=model3d_id,  # model3d_id 추가
@@ -319,6 +340,51 @@ class Model3DConsumer:
                 'model3dPath': model_3d_path,
                 'model3dUrl': model_3d_url,
                 'metadataStored': metadata_saved,
+                'timestamp': timestamp,
+                'processedAt': datetime.now().isoformat(),
+                'processingTimeSeconds': processing_time
+            }
+        
+        except ImageQualityError as e:
+            # 이미지 품질 검증 실패 (FAILED로 처리)
+            logger.warning(f"[품질검증실패] {e.message}")
+            logger.warning(f"  - 점수: {e.score:.1f}점")
+            logger.warning(f"  - 문제점: {e.issues}")
+            
+            processing_time = int(time.time() - start_time)
+            
+            # 품질 실패 전용 URL 생성
+            if self.use_s3:
+                temp_model_3d_url = f"s3://{self.config.get('AWS_S3_BUCKET_NAME', 'unknown-bucket')}/quality_failed/model3d_id_{model3d_id}_member_{member_id}.glb"
+            else:
+                temp_model_3d_url = f"http://localhost:5000/models/quality_failed_model3d_id_{model3d_id}_member_{member_id}.glb"
+            
+            # Spring Boot로 품질 검증 실패 메시지 전송 (FAILED 상태 사용)
+            error_message = f"[품질미달] 이미지 품질 미달 ({e.score:.1f}점): {', '.join(e.issues[:2]) if e.issues else '품질 기준 미충족'}"
+            if e.recommendations:
+                error_message += f" | 권장사항: {e.recommendations[0]}"
+            
+            self.producer.send_generation_response(
+                member_id=member_id,
+                model3d_id=model3d_id,
+                original_image_url=image_url,
+                model3d_url=temp_model_3d_url,
+                thumbnail_url=image_url,
+                status="FAILED",  # Spring Boot enum: SUCCESS, FAILED, PROCESSING
+                message=error_message,
+                processing_time_seconds=processing_time
+            )
+            
+            return {
+                'status': 'quality_failed',
+                'imageUrl': image_url,
+                'memberId': member_id,
+                'model3dId': model3d_id,
+                'furnitureType': furniture_type,
+                'isShared': is_shared,
+                'model3dUrl': temp_model_3d_url,
+                'error': e.message,
+                'quality_info': e.to_dict(),
                 'timestamp': timestamp,
                 'processedAt': datetime.now().isoformat(),
                 'processingTimeSeconds': processing_time
@@ -403,33 +469,75 @@ class Model3DConsumer:
         
         return filepath
     
-    def _generate_3d_model(self, image_path: str, member_id: int) -> str:
+    def _generate_3d_model(self, image_path: str, member_id: int) -> dict:
         """
-        3D 모델 생성기를 사용하여 3D 모델 생성
+        3D 모델 생성기를 사용하여 3D 모델 생성 (품질 검증 통합)
         
-        최적화 파라미터:
-        - ss_sampling_steps: 20 (기본 30 → 20으로 감소, ~33% 빠름)
-        - slat_sampling_steps: 20 (기본 30 → 20으로 감소, ~33% 빠름)
-        - mesh_simplify_ratio: 0.85 (기본 0.95 → 0.85로 감소, 더 단순한 메시 구조)
-        - texture_size: 512 (기본 1024 → 512로 감소, 텍스처 처리 시간 ~75% 단축)
+        품질 검증 후 품질 등급에 따라 최적화된 파라미터로 3D 모델을 생성합니다.
         
         Args:
             image_path: 이미지 경로
             member_id: 사용자 ID
             
         Returns:
-            생성된 3D 모델 파일 경로 (.glb)
+            dict: {
+                'success': bool,
+                'model_path': str or None,
+                'quality_result': dict,  # 품질 검증 결과
+                'error': str or None
+            }
+            
+        Raises:
+            ImageQualityError: 품질 검증 실패 시
         """
-        return self.model_generator.generate_3d_model(
-            image_path=image_path,
-            output_dir=self.config['MODEL3D_FOLDER'],
-            member_id=member_id,
-            # 성능 최적화 파라미터
-            ss_sampling_steps=20,          # 기본값 30 → 20 (33% 빠름)
-            slat_sampling_steps=20,        # 기본값 30 → 20 (33% 빠름)
-            mesh_simplify_ratio=0.85,      # 기본값 0.95 → 0.85 (더 단순한 메시)
-            texture_size=512               # 기본값 1024 → 512 (75% 빠름, 여전히 충분한 품질)
-        )
+        # 설정에서 품질 검증 옵션 가져오기
+        quality_check_enabled = self.config.get('QUALITY_CHECK_ENABLED', True)
+        strict_mode = self.config.get('QUALITY_CHECK_STRICT_MODE', False)
+        
+        logger.info(f"[3D생성] 품질검증={quality_check_enabled}, 엄격모드={strict_mode}")
+        
+        if quality_check_enabled:
+            # 품질 검증이 통합된 3D 모델 생성
+            result = self.model_generator.generate_3d_model_with_validation(
+                image_path=image_path,
+                output_dir=self.config['MODEL3D_FOLDER'],
+                member_id=member_id,
+                strict_mode=strict_mode
+            )
+            
+            if not result['success']:
+                # 품질 검증 실패 또는 3D 생성 실패
+                quality_info = result.get('quality_validation', {})
+                error_msg = result.get('error', 'unknown')
+                
+                if error_msg == 'quality_failed':
+                    # 품질 미달로 인한 실패
+                    score = quality_info.get('score', 0)
+                    issues = quality_info.get('issues', [])
+                    raise ImageQualityError(
+                        score=score,
+                        issues=issues,
+                        recommendations=quality_info.get('recommendations', []),
+                        message=f"이미지 품질 미달 ({score:.1f}점): {', '.join(issues[:2]) if issues else '품질 기준 미충족'}"
+                    )
+                else:
+                    # 기타 오류
+                    raise Exception(result.get('message', '3D 모델 생성 실패'))
+            
+            logger.info(f"[3D생성] 성공 - 품질: {result['quality_validation'].get('quality_tier', 'unknown')}, "
+                        f"점수: {result['quality_validation'].get('score', 0):.1f}점")
+            return result['model_path']
+        else:
+            # 품질 검증 없이 기존 방식으로 생성
+            return self.model_generator.generate_3d_model(
+                image_path=image_path,
+                output_dir=self.config['MODEL3D_FOLDER'],
+                member_id=member_id,
+                ss_sampling_steps=20,
+                slat_sampling_steps=20,
+                mesh_simplify_ratio=0.85,
+                texture_size=512
+            )
     
     def _upload_model_to_s3(self, model_3d_path: str, member_id: int, model3d_id: int) -> Tuple[bool, str]:
         """
@@ -483,11 +591,11 @@ class Model3DConsumer:
             저장 성공 여부
         """
         try:
-            # ✅ 올바른 임포트 경로: app.recommand에서 가져오기
+            # 올바른 임포트 경로: app.recommand에서 가져오기
             from app.recommand.clip_vectorizer import CLIPVectorizer
             import os
             
-            # 🔥 FIX: 새 인스턴스 생성 후 기존 데이터를 먼저 로드!
+            # FIX: 새 인스턴스 생성 후 기존 데이터를 먼저 로드!
             vectorizer = CLIPVectorizer()
             
             # 기존 VectorDB 데이터가 있으면 로드 (덮어씌우지 않도록!)
@@ -501,17 +609,17 @@ class Model3DConsumer:
             if os.path.exists(db_index_path) and os.path.exists(db_metadata_path):
                 logger.info(f"기존 VectorDB 로드 중: {db_index_path}")
                 vectorizer.load_database(db_index_path, db_metadata_path)
-                logger.info(f"✅ 기존 VectorDB 로드 완료: {vectorizer.index.ntotal} items")
+                logger.info(f"[OK] 기존 VectorDB 로드 완료: {vectorizer.index.ntotal} items")
             
-            # 메타데이터 딕셔너리 생성 (🆕 3D 모델 경로 포함)
+            # 메타데이터 딕셔너리 생성 (3D 모델 경로 포함)
             metadata_dict = {
                 "model3d_id": model3d_id,
                 "furniture_type": furniture_type if furniture_type else "unknown",
                 "image_path": image_path,
-                "model3d_path": model3d_path,  # 🆕 생성된 3D 모델 경로
+                "model3d_path": model3d_path,  # 생성된 3D 모델 경로
                 "is_shared": is_shared,
                 "member_id": member_id,
-                "created_at": datetime.now().isoformat()  # 🆕 생성 시간
+                "created_at": datetime.now().isoformat()  # 생성 시간
             }
             
             # 벡터DB에 추가 (이미지 임베딩 + 메타데이터)
@@ -522,14 +630,14 @@ class Model3DConsumer:
             )
             
             if success:
-                logger.info(f"✅ 벡터DB 메타데이터 저장 성공:")
+                logger.info(f"[OK] 벡터DB 메타데이터 저장 성공:")
                 logger.info(f"   - model3dId: {model3d_id}")
                 logger.info(f"   - furnitureType: {furniture_type}")
                 logger.info(f"   - imagePath: {image_path}")
                 logger.info(f"   - model3dPath: {model3d_path}")
                 logger.info(f"   - memberId: {member_id}")
                 
-                # 🔥 CRITICAL: 벡터DB를 디스크에 저장해야 조회 가능!
+                # CRITICAL: 벡터DB를 디스크에 저장해야 조회 가능!
                 import os
                 upload_folder = os.path.abspath(
                     os.path.join(os.path.dirname(__file__), '..', '..', 'uploads')
@@ -545,7 +653,7 @@ class Model3DConsumer:
                 else:
                     logger.warning(f"VectorDB 메타데이터 디스크 저장 실패")
             else:
-                logger.warning(f"❌ 벡터DB 메타데이터 저장 실패: model3dId={model3d_id}")
+                logger.warning(f"[FAIL] 벡터DB 메타데이터 저장 실패: model3dId={model3d_id}")
             
             return success
             

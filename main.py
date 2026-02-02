@@ -15,12 +15,23 @@ import sys
 import argparse
 from dotenv import load_dotenv
 from threading import Thread
-from app import create_app
-from app.utils.rabbitmq_consumer import start_consumer_thread
-from app.utils.recommendation_consumer import start_recommendation_consumer_thread
 
 # .env 파일에서 환경변수 로드
 load_dotenv()
+
+# ============================================
+# 개발 모드: Docker RabbitMQ 사용 (localhost)
+# run_production.py는 EC2 RabbitMQ 사용
+# ============================================
+os.environ['RABBITMQ_HOST'] = 'localhost'
+os.environ['RABBITMQ_PORT'] = '5672'
+os.environ['RABBITMQ_USERNAME'] = 'guest'
+os.environ['RABBITMQ_PASSWORD'] = 'guest'
+print("[RabbitMQ] Docker (localhost:5672) 연결 모드")
+
+from app import create_app
+from app.utils.rabbitmq_consumer import start_consumer_thread
+from app.utils.recommendation_consumer import start_recommendation_consumer_thread
 
 # 애플리케이션 생성
 app = create_app()

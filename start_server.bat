@@ -4,6 +4,17 @@ echo   RabbitMQ + Flask AI Server 실행
 echo ======================================
 echo.
 
+REM ============================================
+REM Docker RabbitMQ 연결 설정 (localhost)
+REM run_production.py는 EC2로 연결됨
+REM ============================================
+set RABBITMQ_HOST=localhost
+set RABBITMQ_PORT=5672
+set RABBITMQ_USERNAME=guest
+set RABBITMQ_PASSWORD=guest
+echo [RabbitMQ] Docker (localhost:5672) 연결 모드
+echo.
+
 REM 기본값: S3 사용 안 함 (-nos3)
 set S3_OPTION=-nos3
 
@@ -13,14 +24,16 @@ if "%1"=="-s3" (
     echo [설정] S3 업로드 활성화
 ) else if "%1"=="-nos3" (
     set S3_OPTION=-nos3
-    echo [설정] S3 업로드 비활성화 (로컬 URL 사용)
-) else if not "%1"=="" (
+    echo [설정] S3 업로드 비활성화
+) else if "%1"=="" (
+    echo [설정] S3 업로드 비활성화 ^(기본값^)
+) else (
     echo [경고] 알 수 없는 옵션: %1
     echo.
     echo 사용법:
-    echo   start_server.bat          - S3 비활성화 (기본값)
+    echo   start_server.bat          - S3 비활성화 ^(기본값^)
     echo   start_server.bat -s3      - S3 활성화
-    echo   start_server.bat -nos3    - S3 비활성화 (명시적)
+    echo   start_server.bat -nos3    - S3 비활성화 ^(명시적^)
     echo.
     pause
     exit /b 1
@@ -73,12 +86,7 @@ echo ======================================
 echo.
 
 REM Flask 서버 실행 (S3 옵션 포함)
+echo 실행 명령: python main.py %S3_OPTION%
 python main.py %S3_OPTION%
-
-pause
-
-
-REM Flask 서버 실행
-python main.py
 
 pause
