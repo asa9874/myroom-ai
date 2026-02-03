@@ -61,6 +61,10 @@ class Config:
     METADATA_UPDATE_QUEUE = os.environ.get('METADATA_UPDATE_QUEUE') or 'model3d.metadata.update.queue'
     METADATA_UPDATE_ROUTING_KEY = os.environ.get('METADATA_UPDATE_ROUTING_KEY') or 'model3d.metadata.update'
     
+    # RabbitMQ VectorDB 삭제 설정 (Spring Boot → Flask)
+    MODEL3D_DELETE_QUEUE = os.environ.get('MODEL3D_DELETE_QUEUE') or 'model3d.delete.queue'
+    MODEL3D_DELETE_ROUTING_KEY = os.environ.get('MODEL3D_DELETE_ROUTING_KEY') or 'model3d.delete'
+    
     # 3D 모델 저장 경로
     MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
     

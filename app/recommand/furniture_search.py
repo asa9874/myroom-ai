@@ -146,6 +146,10 @@ class FurnitureSearchEngine:
 
                 meta = self.vectorizer.metadata[idx]
 
+                # 삭제된 항목 제외
+                if meta.get("_deleted", False):
+                    continue
+
                 # 필터링 (furniture_type 지정 시)
                 if furniture_type and meta.get("furniture_type") != furniture_type:
                     continue

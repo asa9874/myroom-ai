@@ -33,6 +33,7 @@ from app import create_app
 from app.utils.rabbitmq_consumer import start_consumer_thread
 from app.utils.recommendation_consumer import start_recommendation_consumer_thread
 from app.utils.metadata_update_consumer import start_metadata_update_consumer_thread
+from app.utils.model3d_delete_consumer import start_model3d_delete_consumer_thread
 
 # 애플리케이션 생성
 app = create_app()
@@ -167,6 +168,13 @@ if __name__ == '__main__':
         app.logger.info('VectorDB 메타데이터 업데이트 Consumer 스레드 시작됨')
     except Exception as e:
         app.logger.warning(f'VectorDB 메타데이터 업데이트 Consumer 시작 실패: {e}')
+    
+    # RabbitMQ Consumer (VectorDB 삭제)를 별도 스레드에서 시작
+    try:
+        start_model3d_delete_consumer_thread(app)
+        app.logger.info('VectorDB 삭제 Consumer 스레드 시작됨')
+    except Exception as e:
+        app.logger.warning(f'VectorDB 삭제 Consumer 시작 실패: {e}')
     
     # 서버 시작
     app.logger.info(f'서버가 http://{host}:{port} 에서 시작됩니다.')
