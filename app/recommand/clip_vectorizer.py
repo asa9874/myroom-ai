@@ -366,3 +366,91 @@ class CLIPVectorizer:
             "category_count": len(categories),
             "device": self.device,
         }
+
+    def update_metadata(self, model3d_id: int, name: str = None, 
+                       description: str = None, is_shared: bool = None) -> bool:
+        """
+        특정 3D 모델의 메타데이터를 업데이트합니다.
+        
+        벡터 임베딩은 변경하지 않고 메타데이터만 업데이트합니다.
+        멱등성을 보장하여 같은 메시지가 여러 번 처리되어도 동일한 결과를 반환합니다.
+        
+        Args:
+            model3d_id: 3D 모델 ID
+            name: 새로운 모델 이름 (None이면 변경 안함)
+            description: 새로운 모델 설명 (None이면 변경 안함)
+            is_shared: 새로운 공유 여부 (None이면 변경 안함)
+            
+        Returns:
+            업데이트 성공 여부
+        """
+        try:
+            # model3d_id로 메타데이터 찾기
+            updated = False
+            for i, meta in enumerate(self.metadata):
+                if meta.get("model3d_id") == model3d_id:
+                    # 메타데이터 업데이트
+                    if name is not None:
+                        self.metadata[i]["name"] = name
+                    if description is not None:
+                        self.metadata[i]["description"] = description
+                    if is_shared is not None:
+                        self.metadata[i]["is_shared"] = is_shared
+                    
+                    updated = True
+                    logger.info(f"[SUCCESS] Metadata updated for model3d_id={model3d_id}")
+                    logger.debug(f"  Updated metadata: {self.metadata[i]}")
+                    break
+            
+            if not updated:
+                logger.warning(f"[NOT_FOUND] No metadata found for model3d_id={model3d_id}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"[ERROR] Error updating metadata for model3d_id={model3d_id}: {e}")
+            return False
+
+    def find_by_model3d_id(self, model3d_id: int) -> Optional[Dict]:
+        """
+        model3d_id로 메타데이터를 조회합니다.
+        
+        Args:
+            model3d_id: 3D 모델 ID
+            
+        Returns:
+            메타데이터 딕셔너리 또는 None (찾지 못한 경우)
+        """
+        for meta in self.metadata:
+            if meta.get("model3d_id") == model3d_id:
+                return meta.copy()
+        return None
+
+    def delete_by_model3d_id(self, model3d_id: int) -> bool:
+        """
+        model3d_id로 메타데이터와 벡터를 삭제합니다.
+        
+        주의: FAISS IndexFlatIP는 개별 벡터 삭제를 지원하지 않으므로,
+        메타데이터만 삭제하고 검색 시 필터링합니다.
+        
+        Args:
+            model3d_id: 삭제할 3D 모델 ID
+            
+        Returns:
+            삭제 성공 여부
+        """
+        try:
+            for i, meta in enumerate(self.metadata):
+                if meta.get("model3d_id") == model3d_id:
+                    # 메타데이터에 삭제 표시 (soft delete)
+                    self.metadata[i]["_deleted"] = True
+                    logger.info(f"[SUCCESS] Marked as deleted: model3d_id={model3d_id}")
+                    return True
+            
+            logger.warning(f"[NOT_FOUND] No entry found for model3d_id={model3d_id}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"[ERROR] Error deleting model3d_id={model3d_id}: {e}")
+            return False

@@ -57,6 +57,10 @@ class Config:
     RECOMMAND_EXCHANGE = os.environ.get('RECOMMAND_EXCHANGE') or 'recommand.exchange'
     RECOMMAND_RESPONSE_ROUTING_KEY = os.environ.get('RECOMMAND_RESPONSE_ROUTING_KEY') or 'recommand.response'
     
+    # RabbitMQ VectorDB 메타데이터 업데이트 설정 (Spring Boot → Flask)
+    METADATA_UPDATE_QUEUE = os.environ.get('METADATA_UPDATE_QUEUE') or 'model3d.metadata.update.queue'
+    METADATA_UPDATE_ROUTING_KEY = os.environ.get('METADATA_UPDATE_ROUTING_KEY') or 'model3d.metadata.update'
+    
     # 3D 모델 저장 경로
     MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
     
