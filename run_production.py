@@ -22,11 +22,17 @@ load_dotenv()
 # 프로덕션 모드: EC2 RabbitMQ 사용
 # main.py는 Docker RabbitMQ (localhost) 사용
 # ============================================
-os.environ['RABBITMQ_HOST'] = '43.201.36.211'
-os.environ['RABBITMQ_PORT'] = '5672'
-os.environ['RABBITMQ_USERNAME'] = 'guest'
-os.environ['RABBITMQ_PASSWORD'] = 'guest'
-print("[RabbitMQ] EC2 (43.201.36.211:5672) 연결 모드")
+# 환경변수에서 프로덕션 RabbitMQ 설정 읽기
+production_host = os.environ.get('PRODUCTION_RABBITMQ_HOST', '43.201.36.211')
+production_port = os.environ.get('PRODUCTION_RABBITMQ_PORT', '5672')
+production_username = os.environ.get('PRODUCTION_RABBITMQ_USERNAME', 'guest')
+production_password = os.environ.get('PRODUCTION_RABBITMQ_PASSWORD', 'guest')
+
+os.environ['RABBITMQ_HOST'] = production_host
+os.environ['RABBITMQ_PORT'] = production_port
+os.environ['RABBITMQ_USERNAME'] = production_username
+os.environ['RABBITMQ_PASSWORD'] = production_password
+print(f"[RabbitMQ] EC2 ({production_host}:{production_port}) 연결 모드")
 
 # 프로덕션 모드 설정
 os.environ['FLASK_ENV'] = 'production'
