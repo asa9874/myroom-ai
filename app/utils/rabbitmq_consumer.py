@@ -504,17 +504,26 @@ class Model3DConsumer:
         """
         try:
             from app.utils.image_quality import crop_main_object
+            from app.utils.image_quality import get_validator
+
+            # YOLO 모델 로드 여부 사전 확인 (명확한 실패 로그를 위해)
+            validator = get_validator()
+            if validator.model is None:
+                logger.warning("[CROP] YOLO 모델이 로드되지 않았습니다. yolov8n.pt 파일을 확인하세요.")
+                return None
 
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"member_{member_id}_{timestamp}_detected_obj.jpg"
             cropped_path = os.path.join(self.config['UPLOAD_FOLDER'], filename)
 
+            logger.info(f"[CROP] YOLO 객체 감지 시작: {image_path}")
             success = crop_main_object(image_path, cropped_path)
             if success:
-                logger.info(f"[CROP] 객체 크롭 성공: {cropped_path}")
+                file_size = os.path.getsize(cropped_path) if os.path.exists(cropped_path) else 0
+                logger.info(f"[CROP] 객체 크롭 성공: {cropped_path} ({file_size} bytes)")
                 return cropped_path
             else:
-                logger.warning("[CROP] 객체 크롭 실패 (YOLO 미감지 또는 모델 없음)")
+                logger.warning(f"[CROP] 객체 크롭 실패 - 이미지에서 객체가 감지되지 않았습니다: {image_path}")
                 return None
 
         except Exception as e:

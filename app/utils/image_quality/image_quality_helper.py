@@ -37,7 +37,9 @@ def get_validator(model_path: Optional[str] = None, min_confidence: float = 0.5)
     if _validator_instance is None:
         if model_path is None:
             # 프로젝트 루트에서 YOLO 모델 찾기
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            # __file__ = app/utils/image_quality/image_quality_helper.py
+            # dirname x4 → myroom-ai/ (프로젝트 루트)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
             model_path = os.path.join(project_root, "yolov8n.pt")
         
         _validator_instance = ImageQualityValidator(model_path, min_confidence)
