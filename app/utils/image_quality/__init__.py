@@ -16,6 +16,7 @@ try:
         is_good_for_3d,
         filter_good_images,
         get_image_score,
+        crop_main_object,
         get_validator,
         set_validation_config,
         reset_validator
@@ -31,6 +32,7 @@ except ImportError:
         is_good_for_3d,
         filter_good_images,
         get_image_score,
+        crop_main_object,
         get_validator,
         set_validation_config,
         reset_validator
@@ -53,7 +55,8 @@ __all__ = [
     "is_good_for_3d",
     "filter_good_images",
     "get_image_score",
-    
+    "crop_main_object",
+
     # 설정 함수들
     "get_validator",
     "set_validation_config", 

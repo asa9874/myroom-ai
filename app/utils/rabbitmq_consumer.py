@@ -13,7 +13,7 @@ import requests
 import time
 from datetime import datetime
 from threading import Thread
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 from .model3d_generator import Model3DGenerator
 from .s3_manager import S3Manager
@@ -273,10 +273,27 @@ class Model3DConsumer:
             # 2. 이미지 저장
             image_path = self._save_image(image_data, member_id)
             logger.info(f"이미지 저장 완료: {image_path}")
-            
-            # 3. AI 모델로 3D 생성 (실제 API 호출)
+
+            # 3. 입력 이미지 모드 결정
+            #    MODEL3D_USE_DETECTED_OBJECT=false(기본): 원본 이미지 사용
+            #    MODEL3D_USE_DETECTED_OBJECT=true       : YOLO 감지 객체 크롭 이미지 사용
+            use_detected_object = self.config.get('MODEL3D_USE_DETECTED_OBJECT', False)
+            input_image_path = image_path
+
+            if use_detected_object:
+                logger.info("[MODE] 감지된 객체 크롭 이미지로 3D 모델 생성 (MODEL3D_USE_DETECTED_OBJECT=true)")
+                cropped_path = self._crop_detected_object(image_path, member_id)
+                if cropped_path:
+                    input_image_path = cropped_path
+                    logger.info(f"크롭된 객체 이미지 사용: {cropped_path}")
+                else:
+                    logger.warning("객체 감지/크롭 실패 → 원본 이미지로 대체합니다.")
+            else:
+                logger.info("[MODE] 원본 이미지로 3D 모델 생성 (MODEL3D_USE_DETECTED_OBJECT=false)")
+
+            # 4. AI 모델로 3D 생성 (실제 API 호출)
             logger.info("3D 모델 생성 중... (수 분 소요 가능)")
-            model_3d_path = self._generate_3d_model(image_path, member_id)
+            model_3d_path = self._generate_3d_model(input_image_path, member_id)
             logger.info(f"3D 모델 생성 완료: {model_3d_path}")
             
             # 3-1. � S3 사용 여부에 따라 처리
@@ -469,6 +486,41 @@ class Model3DConsumer:
         
         return filepath
     
+    def _crop_detected_object(self, image_path: str, member_id: int) -> Optional[str]:
+        """
+        이미지에서 YOLO로 주 객체를 감지·크롭하여 별도 파일로 저장하고 경로를 반환합니다.
+
+        MODEL3D_USE_DETECTED_OBJECT=true 일 때 process_3d_model 에서 호출됩니다.
+        YOLO 모델이 없거나 객체 감지에 실패하면 None 을 반환하며,
+        이 경우 호출부에서 원본 이미지로 대체 처리합니다.
+
+        Args:
+            image_path: 원본으로 저장된 이미지 경로
+            member_id: 사용자 ID (파일명 구분용)
+
+        Returns:
+            str: 크롭된 이미지 경로 (성공 시)
+            None: 크롭 실패 시
+        """
+        try:
+            from app.utils.image_quality import crop_main_object
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"member_{member_id}_{timestamp}_detected_obj.jpg"
+            cropped_path = os.path.join(self.config['UPLOAD_FOLDER'], filename)
+
+            success = crop_main_object(image_path, cropped_path)
+            if success:
+                logger.info(f"[CROP] 객체 크롭 성공: {cropped_path}")
+                return cropped_path
+            else:
+                logger.warning("[CROP] 객체 크롭 실패 (YOLO 미감지 또는 모델 없음)")
+                return None
+
+        except Exception as e:
+            logger.error(f"[CROP] _crop_detected_object 오류: {e}", exc_info=True)
+            return None
+
     def _generate_3d_model(self, image_path: str, member_id: int) -> dict:
         """
         3D 모델 생성기를 사용하여 3D 모델 생성 (품질 검증 통합)

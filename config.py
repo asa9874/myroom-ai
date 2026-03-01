@@ -73,6 +73,11 @@ class Config:
     # QUALITY_CHECK_STRICT_MODE: 엄격 모드 (True: 80점 이상, False: 50점 이상)
     QUALITY_CHECK_ENABLED = os.environ.get('QUALITY_CHECK_ENABLED', 'true').lower() == 'true'
     QUALITY_CHECK_STRICT_MODE = os.environ.get('QUALITY_CHECK_STRICT_MODE', 'false').lower() == 'true'
+
+    # 3D 모델 생성 시 입력 이미지 모드 설정
+    # MODEL3D_USE_DETECTED_OBJECT=false (기본값): 받아온 원본 이미지를 그대로 3D 모델 생성에 사용
+    # MODEL3D_USE_DETECTED_OBJECT=true        : YOLO로 주 객체를 감지·크롭한 이미지를 3D 모델 생성에 사용
+    MODEL3D_USE_DETECTED_OBJECT = os.environ.get('MODEL3D_USE_DETECTED_OBJECT', 'false').lower() == 'true'
     
     # 벡터DB 설정 (CLIP 모델 기반 메타데이터 저장)
     # 메타데이터: 3d_model_id, furniture_type, image_path, is_shared, member_id

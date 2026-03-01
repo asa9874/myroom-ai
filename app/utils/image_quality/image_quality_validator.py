@@ -426,6 +426,82 @@ class ImageQualityValidator:
                     result.issues.append("객체가 명확하게 감지되지 않았습니다")
                     result.recommendations.append("객체가 더 명확하게 보이도록 배경과 대비를 높여주세요")
 
+    def crop_main_object(self, image_path: str, output_path: str, padding_ratio: float = 0.05) -> bool:
+        """
+        이미지에서 YOLO로 주 객체를 감지하여 크롭한 후 저장합니다.
+
+        단일 객체가 여럿일 경우 면적이 가장 큰 객체를 주 객체로 선택하며,
+        padding_ratio 만큼 여백을 추가하여 저장합니다.
+
+        Args:
+            image_path: 원본 이미지 경로
+            output_path: 크롭된 이미지를 저장할 경로
+            padding_ratio: 바운딩박스 크롭 시 추가 여백 비율 (기본값: 0.05 = 5%)
+
+        Returns:
+            bool: 크롭 성공 여부 (YOLO 모델 없거나 객체 미감지 시 False)
+        """
+        try:
+            image = cv2.imread(image_path)
+            if image is None:
+                logger.error(f"이미지 로드 실패: {image_path}")
+                return False
+
+            h, w = image.shape[:2]
+
+            if self.model is None:
+                logger.warning("YOLO 모델이 없어 객체 크롭을 수행할 수 없습니다.")
+                return False
+
+            # YOLO 객체 감지 수행
+            results = self.model(image, conf=self.min_confidence)
+            detected_boxes = results[0].boxes
+
+            if len(detected_boxes) == 0:
+                logger.warning(f"객체가 감지되지 않아 크롭 불가: {image_path}")
+                return False
+
+            # 면적이 가장 큰 객체(주 객체)의 바운딩박스 선택
+            main_box_coords = None
+            max_area = 0.0
+            for box in detected_boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                area = (x2 - x1) * (y2 - y1)
+                if area > max_area:
+                    max_area = area
+                    main_box_coords = (x1, y1, x2, y2)
+
+            if main_box_coords is None:
+                return False
+
+            x1, y1, x2, y2 = main_box_coords
+
+            # 패딩 적용 (이미지 경계 초과하지 않도록 클램핑)
+            pad_x = (x2 - x1) * padding_ratio
+            pad_y = (y2 - y1) * padding_ratio
+            x1_crop = max(0, int(x1 - pad_x))
+            y1_crop = max(0, int(y1 - pad_y))
+            x2_crop = min(w, int(x2 + pad_x))
+            y2_crop = min(h, int(y2 + pad_y))
+
+            cropped = image[y1_crop:y2_crop, x1_crop:x2_crop]
+
+            # 출력 디렉토리 생성 후 저장
+            output_dir = os.path.dirname(output_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            cv2.imwrite(output_path, cropped)
+
+            logger.info(
+                f"객체 크롭 완료: {output_path} "
+                f"(원본 {w}x{h} → 크롭 {x2_crop - x1_crop}x{y2_crop - y1_crop})"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"객체 크롭 중 오류 발생: {e}")
+            return False
+
     def validate_batch(self, image_paths: List[str]) -> List[Tuple[str, ImageQualityResult]]:
         """
         여러 이미지 일괄 검증

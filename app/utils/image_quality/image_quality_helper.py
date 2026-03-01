@@ -317,6 +317,30 @@ def get_image_score(image_path: str) -> float:
     return result['overall_score']
 
 
+def crop_main_object(image_path: str, output_path: str, padding_ratio: float = 0.05) -> bool:
+    """
+    이미지에서 YOLO로 주 객체를 감지한 뒤 크롭하여 저장합니다.
+
+    감지된 객체가 여러 개일 경우 면적이 가장 큰 객체를 주 객체로 선택하며,
+    padding_ratio 만큼 여백을 추가합니다.
+    YOLO 모델이 없거나 객체가 감지되지 않으면 False 를 반환합니다.
+
+    Args:
+        image_path: 원본 이미지 경로
+        output_path: 크롭된 이미지를 저장할 경로
+        padding_ratio: 바운딩박스 여백 비율 (기본값: 0.05 = 5%)
+
+    Returns:
+        bool: 크롭 성공 여부
+    """
+    try:
+        validator = get_validator()
+        return validator.crop_main_object(image_path, output_path, padding_ratio)
+    except Exception as e:
+        logger.error(f"crop_main_object 실패: {e}")
+        return False
+
+
 # 설정 함수들
 
 def set_validation_config(blur_threshold: Optional[float] = None,
