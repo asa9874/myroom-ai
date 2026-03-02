@@ -15,7 +15,7 @@ from datetime import datetime
 from threading import Thread
 from typing import Dict, Any, Tuple, Optional
 
-from .model3d_generator import Model3DGenerator
+from .model3d_generator import Model3DGenerator, Model3DServerUnavailableError
 from .s3_manager import S3Manager
 
 logger = logging.getLogger(__name__)
@@ -362,6 +362,47 @@ class Model3DConsumer:
                 'processingTimeSeconds': processing_time
             }
         
+        except Model3DServerUnavailableError as e:
+            # 3D 모델링 서버 연결 불가 (FAILED로 처리)
+            logger.error(f"[3D서버연결불가] {e.message}")
+            logger.error(f"   - API URL: {e.api_url}")
+
+            processing_time = int(time.time() - start_time)
+
+            # 실패 URL 생성
+            if self.use_s3:
+                temp_model_3d_url = f"s3://{self.config.get('AWS_S3_BUCKET_NAME', 'unknown-bucket')}/server_unavailable/model3d_id_{model3d_id}_member_{member_id}.glb"
+            else:
+                temp_model_3d_url = f"http://localhost:5000/models/server_unavailable_model3d_id_{model3d_id}_member_{member_id}.glb"
+
+            # Spring Boot로 3D 서버 연결 불가 메시지 전송 (FAILED)
+            error_message = f"[3D서버미가동] {e.message}"
+
+            self.producer.send_generation_response(
+                member_id=member_id,
+                model3d_id=model3d_id,
+                original_image_url=image_url,
+                model3d_url=temp_model_3d_url,
+                thumbnail_url=image_url,
+                status="FAILED",
+                message=error_message,
+                processing_time_seconds=processing_time
+            )
+
+            return {
+                'status': 'server_unavailable',
+                'imageUrl': image_url,
+                'memberId': member_id,
+                'model3dId': model3d_id,
+                'furnitureType': furniture_type,
+                'isShared': is_shared,
+                'model3dUrl': temp_model_3d_url,
+                'error': e.message,
+                'timestamp': timestamp,
+                'processedAt': datetime.now().isoformat(),
+                'processingTimeSeconds': processing_time
+            }
+
         except ImageQualityError as e:
             # 이미지 품질 검증 실패 (FAILED로 처리)
             logger.warning(f"[품질검증실패] {e.message}")

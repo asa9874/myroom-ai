@@ -25,6 +25,16 @@ from app.utils.image_quality import (
 
 logger = logging.getLogger(__name__)
 
+
+class Model3DServerUnavailableError(Exception):
+    """3D 모델링 서버 연결 불가 예외"""
+
+    def __init__(self, api_url: str, message: str = None):
+        self.api_url = api_url
+        self.message = message or f"3D 모델링 서버에 연결할 수 없습니다 ({api_url})"
+        super().__init__(self.message)
+
+
 # 3D 모델 생성 API 설정
 API_BASE_URL = "http://127.0.0.1:7960"
 
@@ -307,6 +317,12 @@ class Model3DGenerator:
                 timeout=300
             )
             response.raise_for_status()
+        except requests.exceptions.ConnectionError as ce:
+            logger.error(f"3D 모델링 서버 연결 불가: {self.api_base_url} - {str(ce)}")
+            raise Model3DServerUnavailableError(
+                api_url=self.api_base_url,
+                message=f"3D 모델링 서버가 실행 중이지 않습니다."
+            )
         except requests.RequestException as e:
             logger.error(f"3D 모델 생성 API 호출 실패: {str(e)}")
             raise Exception(f"3D 모델 생성 API 호출 실패: {str(e)}")
@@ -486,6 +502,9 @@ class Model3DGenerator:
             logger.info(result['message'])
             logger.info("=" * 60)
             
+        except Model3DServerUnavailableError:
+            # 3D 서버 연결 불가 예외는 그대로 전파 (rabbitmq_consumer에서 전용 처리)
+            raise
         except Exception as e:
             result['error'] = str(e)
             result['message'] = f"[FAIL] 3D 모델 생성 실패: {str(e)}"
