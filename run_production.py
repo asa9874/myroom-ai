@@ -46,6 +46,8 @@ app = create_app('production')
 
 from app.utils.rabbitmq_consumer import start_consumer_thread
 from app.utils.recommendation_consumer import start_recommendation_consumer_thread
+from app.utils.metadata_update_consumer import start_metadata_update_consumer_thread
+from app.utils.model3d_delete_consumer import start_model3d_delete_consumer_thread
 
 
 def parse_arguments():
@@ -122,6 +124,18 @@ if __name__ == '__main__':
             app.logger.info('✓ 추천 Consumer 시작')
         except Exception as e:
             app.logger.warning(f'⚠ Consumer 시작 실패: {e}')
+
+        try:
+            start_metadata_update_consumer_thread(app)
+            app.logger.info('✓ 메타데이터 업데이트 Consumer 시작')
+        except Exception as e:
+            app.logger.warning(f'⚠ 메타데이터 업데이트 Consumer 시작 실패: {e}')
+
+        try:
+            start_model3d_delete_consumer_thread(app)
+            app.logger.info('✓ VectorDB 삭제 Consumer 시작')
+        except Exception as e:
+            app.logger.warning(f'⚠ VectorDB 삭제 Consumer 시작 실패: {e}')
     else:
         app.logger.info('○ Consumer 비활성화됨')
     
