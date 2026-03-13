@@ -5,7 +5,7 @@ import threading
 import time
 from queue import Queue, Empty
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 from typing import Dict, List, Any
 
 import requests
@@ -13,6 +13,7 @@ import customtkinter as ctk
 from PIL import Image
 
 from app.utils.model3d_params import Model3DParameterManager
+from app.utils.model3d_generator import Model3DGenerator
 from .base_panel import BaseSettingsPanel
 from gui.widgets import launch_external_glb_viewer
 
@@ -119,6 +120,10 @@ class Model3DParametersPanel(BaseSettingsPanel):
         self.manager = Model3DParameterManager()
         self.runtime_api_base = "http://127.0.0.1:5000/api/model3d-params"
         self.mq_api_base = "http://127.0.0.1:5000/api/mq-monitor"
+        self.local_generator = Model3DGenerator(parameter_manager=self.manager)
+        self._local_generation_lock = threading.Lock()
+        self._local_generations: Dict[str, Dict[str, Any]] = {}
+        self._local_generation_seq = 0
 
         self.entries: Dict[str, Any] = {}
         self.bool_vars: Dict[str, tk.BooleanVar] = {}
@@ -483,6 +488,17 @@ class Model3DParametersPanel(BaseSettingsPanel):
             text_color=self.TEXT_PRIMARY,
             font=("맑은 고딕", 11, "bold"),
         ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            button_frame,
+            text="테스트 생성",
+            command=self._on_test_generate_clicked,
+            width=120,
+            height=34,
+            fg_color="#2563eb",
+            hover_color="#1d4ed8",
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 11, "bold"),
+        ).pack(side="left", padx=5)
 
         parent_widget.columnconfigure(0, weight=1)
 
@@ -518,6 +534,86 @@ class Model3DParametersPanel(BaseSettingsPanel):
         except Exception as exc:
             messagebox.showerror("적용 실패", f"런타임 반영 중 오류가 발생했습니다.\n{exc}")
 
+    def _on_test_generate_clicked(self) -> None:
+        image_path = filedialog.askopenfilename(
+            title="테스트용 이미지 선택",
+            filetypes=[
+                ("Image Files", "*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.avif"),
+                ("All Files", "*.*"),
+            ],
+        )
+        if not image_path:
+            return
+
+        try:
+            settings = self._collect_generation_settings_from_form()
+        except Exception as exc:
+            messagebox.showerror("설정 오류", f"생성 파라미터 파싱에 실패했습니다.\n{exc}")
+            return
+
+        model3d_id = f"test-{int(time.time())}"
+        job_id = self._start_local_generation(
+            model3d_id=model3d_id,
+            image_path=image_path,
+            settings=settings,
+        )
+
+        worker = threading.Thread(
+            target=self._run_local_test_generation,
+            args=(job_id, image_path, settings),
+            daemon=True,
+            name="GuiLocal3DGeneration",
+        )
+        worker.start()
+
+    def _collect_generation_settings_from_form(self) -> Dict[str, Any]:
+        settings: Dict[str, Any] = {}
+        for key in self.GENERATION_DETAIL_ORDER:
+            full_key = f"generation_defaults.{key}"
+            entry = self.entries.get(full_key)
+            if entry is None:
+                continue
+            value = self._convert_value(str(entry.get()).strip())
+            settings[key] = value
+        return settings
+
+    def _run_local_test_generation(self, job_id: str, image_path: str, settings: Dict[str, Any]) -> None:
+        try:
+            output_dir = os.path.join("uploads", "models")
+            os.makedirs(output_dir, exist_ok=True)
+
+            model_path = self.local_generator.generate_3d_model(
+                image_path=image_path,
+                output_dir=output_dir,
+                member_id=99999,
+                seed=settings.get("seed"),
+                ss_guidance_strength=settings.get("ss_guidance_strength"),
+                ss_sampling_steps=settings.get("ss_sampling_steps"),
+                slat_guidance_strength=settings.get("slat_guidance_strength"),
+                slat_sampling_steps=settings.get("slat_sampling_steps"),
+                mesh_simplify_ratio=settings.get("mesh_simplify_ratio"),
+                texture_size=settings.get("texture_size"),
+            )
+
+            self._update_local_generation(
+                job_id,
+                status="completed",
+                model3d_path=model_path,
+                model3d_url=f"file://{os.path.abspath(model_path)}",
+                message="GUI 테스트 생성 완료",
+            )
+
+            if self.winfo_exists():
+                self.after(0, lambda: messagebox.showinfo("테스트 생성 완료", f"3D 모델 생성 성공\n{model_path}"))
+        except Exception as exc:
+            self._update_local_generation(
+                job_id,
+                status="failed",
+                message=f"GUI 테스트 생성 실패: {exc}",
+            )
+            if self.winfo_exists():
+                self.after(0, lambda: messagebox.showerror("테스트 생성 실패", str(exc)))
+
     def _apply_preset(self, preset_name: str) -> None:
         preset = self.PRESETS.get(preset_name, {})
         if not preset:
@@ -535,6 +631,7 @@ class Model3DParametersPanel(BaseSettingsPanel):
 
     def _refresh_mq_panel(self) -> None:
         overview = self._load_mq_overview()
+        local_generations = self._get_local_generations()
         if overview:
             connections = overview.get("connections", [])
             events = overview.get("events", [])
@@ -550,7 +647,8 @@ class Model3DParametersPanel(BaseSettingsPanel):
                 self._render_event_cards(events)
                 self._last_event_signature = event_signature
 
-            generations = overview.get("generations", [])
+            api_generations = overview.get("generations", [])
+            generations = self._merge_generation_sources(api_generations, local_generations)
             generation_signature = self._make_generation_signature(generations)
             if generation_signature != self._last_generation_signature:
                 self._render_generation_grid(generations)
@@ -560,7 +658,8 @@ class Model3DParametersPanel(BaseSettingsPanel):
         else:
             empty_connection_signature = tuple()
             empty_event_signature = tuple()
-            empty_generation_signature = tuple()
+            generations = self._merge_generation_sources([], local_generations)
+            generation_signature = self._make_generation_signature(generations)
 
             if self._last_connection_signature != empty_connection_signature:
                 self._render_connection_status([])
@@ -570,15 +669,68 @@ class Model3DParametersPanel(BaseSettingsPanel):
                 self._render_event_cards([])
                 self._last_event_signature = empty_event_signature
 
-            if self._last_generation_signature != empty_generation_signature:
-                self._render_generation_grid([])
-                self._last_generation_signature = empty_generation_signature
+            if self._last_generation_signature != generation_signature:
+                self._render_generation_grid(generations)
+                self._last_generation_signature = generation_signature
 
             self._set_model_server_status(False, "서버 상태 조회 실패")
             self._poll_model_server_status_async(force=True)
 
         if self.winfo_exists():
             self._mq_polling_job = self.after(2000, self._refresh_mq_panel)
+
+    def _start_local_generation(self, model3d_id: str, image_path: str, settings: Dict[str, Any]) -> str:
+        with self._local_generation_lock:
+            self._local_generation_seq += 1
+            job_id = f"local-gen-{self._local_generation_seq}"
+            now = time.strftime("%Y-%m-%dT%H:%M:%S")
+            self._local_generations[job_id] = {
+                "job_id": job_id,
+                "status": "processing",
+                "member_id": "GUI_TEST",
+                "model3d_id": model3d_id,
+                "input_image_url": image_path,
+                "input_image_urls": [image_path],
+                "input_image_path": image_path,
+                "model3d_path": None,
+                "model3d_url": None,
+                "settings": settings or {},
+                "message": "GUI 테스트 생성 시작",
+                "created_at": now,
+                "updated_at": now,
+                "source": "gui-local-test",
+            }
+            return job_id
+
+    def _update_local_generation(self, job_id: str, **patch: Any) -> None:
+        with self._local_generation_lock:
+            item = self._local_generations.get(job_id)
+            if not item:
+                return
+            item.update(patch)
+            item["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    def _get_local_generations(self) -> List[Dict[str, Any]]:
+        with self._local_generation_lock:
+            items = list(self._local_generations.values())
+        items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        return items[:30]
+
+    @staticmethod
+    def _merge_generation_sources(api_items: List[dict], local_items: List[dict]) -> List[dict]:
+        merged: Dict[str, dict] = {}
+        for item in api_items:
+            job_id = str(item.get("job_id") or "")
+            if job_id:
+                merged[job_id] = item
+        for item in local_items:
+            job_id = str(item.get("job_id") or "")
+            if job_id:
+                merged[job_id] = item
+
+        values = list(merged.values())
+        values.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        return values[:30]
 
     def _poll_model_server_status_async(self, force: bool = False) -> None:
         self._drain_model_server_check_results()
