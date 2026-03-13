@@ -71,6 +71,23 @@ pip install -r requirements.txt
 python main.py
 ```
 
+### 3D 파라미터 GUI 실행
+
+3D 모델 생성 파라미터는 `config/model3d_params.json`에서 관리됩니다.
+
+```bash
+python main.py -ui
+```
+
+또는 프로덕션 실행 스크립트에서:
+
+```bash
+python run_production.py -ui
+```
+
+`-ui`를 사용하면 서버 시작 전에 파라미터 관리 GUI가 열리고,
+저장 후 창을 닫으면 서버가 이어서 시작됩니다.
+
 ## 📡 API 엔드포인트
 
 ### Swagger UI

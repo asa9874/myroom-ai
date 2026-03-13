@@ -13,6 +13,7 @@ RabbitMQ Consumer를 별도 스레드에서 실행하여 3D 모델 생성 요청
 import os
 import sys
 import argparse
+import subprocess
 from dotenv import load_dotenv
 from threading import Thread
 
@@ -35,9 +36,6 @@ from app.utils.recommendation_consumer import start_recommendation_consumer_thre
 from app.utils.metadata_update_consumer import start_metadata_update_consumer_thread
 from app.utils.model3d_delete_consumer import start_model3d_delete_consumer_thread
 
-# 애플리케이션 생성
-app = create_app()
-
 
 def parse_arguments():
     """
@@ -54,6 +52,7 @@ def parse_arguments():
   python main.py -s3          # S3 업로드 활성화
   python main.py -nos3        # S3 업로드 비활성화 (로컬 URL 사용)
   python main.py -s3 -p 8080  # S3 업로드 활성화, 포트 8080 사용
+    python main.py -ui          # 3D 파라미터 관리 GUI 실행 후 서버 시작
         '''
     )
     
@@ -93,6 +92,12 @@ def parse_arguments():
         action='store_true',
         help='Debug 모드 활성화'
     )
+
+    parser.add_argument(
+        '-ui', '--ui',
+        action='store_true',
+        help='서버와 함께 3D 파라미터 관리 GUI를 실행합니다'
+    )
     
     return parser.parse_args()
 
@@ -118,9 +123,24 @@ def index():
     }
 
 
+def run_parameter_ui() -> None:
+    """3D 파라미터 관리 GUI를 백그라운드 프로세스로 실행"""
+    try:
+        app.logger.info('3D 파라미터 관리 GUI를 백그라운드에서 실행합니다.')
+        subprocess.Popen(
+            [sys.executable, '-m', 'gui.run_gui'],
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+    except Exception as e:
+        app.logger.warning(f'GUI 실행 실패: {e}')
+
+
 if __name__ == '__main__':
     # 커맨드라인 인자 파싱
     args = parse_arguments()
+
+    if args.ui:
+        run_parameter_ui()
     
     # S3 사용 여부 설정
     use_s3 = args.use_s3 and not args.no_s3

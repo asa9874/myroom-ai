@@ -1,0 +1,39 @@
+{
+  "api": {
+    "base_url": "http://127.0.0.1:7960",
+    "_field_descriptions": {
+      "base_url": "3D 생성 AI 서버 주소"
+    }
+  },
+  "quality_thresholds": {
+    "minimum": 50,
+    "standard": 70,
+    "premium": 80,
+    "_field_descriptions": {
+      "minimum": "strict_mode=false 일 때 최소 통과 점수",
+      "standard": "표준 등급 시작 점수(표시/분류용)",
+      "premium": "strict_mode=true 일 때 통과 기준 점수"
+    }
+  },
+  "generation_defaults": {
+    "seed": 42,
+    "ss_guidance_strength": 7.5,
+    "ss_sampling_steps": 20,
+    "slat_guidance_strength": 7.5,
+    "slat_sampling_steps": 20,
+    "mesh_simplify_ratio": 0.85,
+    "texture_size": 512,
+    "output_format": "glb",
+    "_field_descriptions": {
+      "seed": "랜덤 시드(같은 입력/환경에서 재현성 향상)",
+      "ss_guidance_strength": "1단계 가이던스 강도(높을수록 조건 반영 강함)",
+      "ss_sampling_steps": "1단계 샘플링 스텝 수(높을수록 품질↑, 속도↓)",
+      "slat_guidance_strength": "2단계 가이던스 강도",
+      "slat_sampling_steps": "2단계 샘플링 스텝 수(높을수록 품질↑, 속도↓)",
+      "mesh_simplify_ratio": "메시 단순화 비율(0~1, 낮을수록 가벼운 메시)",
+      "texture_size": "텍스처 해상도(높을수록 선명도↑, 처리시간/용량↑)",
+      "output_format": "출력 3D 파일 포맷"
+    }
+  },
+  "_description": "MyRoom AI 3D 모델 생성 파라미터 설정 파일"
+}

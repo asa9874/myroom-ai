@@ -19,7 +19,8 @@ from app.utils.image_quality import (
     get_image_score,
     is_good_for_3d
 )
-from app.utils.model3d_generator import Model3DGenerator, QUALITY_THRESHOLDS
+from app.utils.model3d_generator import Model3DGenerator
+from app.utils.model3d_params import Model3DParameterManager, RuntimeModel3DParameterStore
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,13 @@ thresholds_model = ns.model('Thresholds', {
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'gif'}
 
 
+def get_quality_thresholds() -> dict:
+    """현재 설정된 품질 임계값 반환"""
+    store = RuntimeModel3DParameterStore(Model3DParameterManager())
+    params = store.get_params()
+    return params.get('quality_thresholds', {'minimum': 50, 'standard': 70, 'premium': 80})
+
+
 def allowed_file(filename):
     """허용된 파일 확장자 확인"""
     return '.' in filename and \
@@ -152,6 +160,7 @@ class ImageQualityValidate(Resource):
         try:
             file.save(temp_path)
             logger.info(f"이미지 품질 검증 요청: {filename}")
+            thresholds = get_quality_thresholds()
             
             # Generator의 품질 검증 메서드 사용
             generator = Model3DGenerator(enable_quality_check=True)
@@ -162,13 +171,13 @@ class ImageQualityValidate(Resource):
                 'score': result['score'],
                 'quality_tier': result['quality_tier'],
                 'can_proceed': result['can_proceed'],
-                'is_valid': result['score'] >= QUALITY_THRESHOLDS['minimum'],
+                'is_valid': result['score'] >= thresholds['minimum'],
                 'scores': result.get('scores', {}),
                 'issues': result.get('issues', []),
                 'recommendations': result.get('recommendations', []),
                 'object_info': result.get('object_info', {}),
                 'processing_params': result.get('processing_params', {}),
-                'thresholds': QUALITY_THRESHOLDS
+                'thresholds': thresholds
             }
             
         except Exception as e:
@@ -215,17 +224,18 @@ class ImageQuickCheck(Resource):
         
         try:
             file.save(temp_path)
+            thresholds = get_quality_thresholds()
             
             # 빠른 검사
             generator = Model3DGenerator(enable_quality_check=True)
             passed, score, message = generator.quick_quality_check(temp_path)
             
             # 품질 등급 결정
-            if score >= QUALITY_THRESHOLDS['premium']:
+            if score >= thresholds['premium']:
                 tier = 'premium'
-            elif score >= QUALITY_THRESHOLDS['standard']:
+            elif score >= thresholds['standard']:
                 tier = 'standard'
-            elif score >= QUALITY_THRESHOLDS['minimum']:
+            elif score >= thresholds['minimum']:
                 tier = 'basic'
             else:
                 tier = 'rejected'
@@ -268,7 +278,7 @@ class QualityThresholds(Resource):
         - **standard**: 표준 등급
         - **minimum**: 최소 등급 (이하는 거부)
         """
-        return QUALITY_THRESHOLDS
+        return get_quality_thresholds()
 
 
 @ns.route('/batch-validate')

@@ -13,6 +13,7 @@ import requests
 import time
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
+from .model3d_params import Model3DParameterManager, RuntimeModel3DParameterStore
 
 # 이미지 품질 검증 모듈 import
 from app.utils.image_quality import (
@@ -35,15 +36,7 @@ class Model3DServerUnavailableError(Exception):
         super().__init__(self.message)
 
 
-# 3D 모델 생성 API 설정
-API_BASE_URL = "http://127.0.0.1:7960"
-
-# 품질 검증 설정
-QUALITY_THRESHOLDS = {
-    'minimum': 50,      # 이 점수 미만은 거부
-    'standard': 70,     # 표준 품질
-    'premium': 80       # 고품질
-}
+DEFAULT_API_BASE_URL = "http://127.0.0.1:7960"
 
 
 class Model3DGenerator:
@@ -55,7 +48,12 @@ class Model3DGenerator:
     사전에 걸러냅니다.
     """
     
-    def __init__(self, api_base_url: str = API_BASE_URL, enable_quality_check: bool = True):
+    def __init__(
+        self,
+        api_base_url: Optional[str] = None,
+        enable_quality_check: bool = True,
+        parameter_manager: Optional[Model3DParameterManager] = None
+    ):
         """
         3D 모델 생성기 초기화
         
@@ -63,7 +61,12 @@ class Model3DGenerator:
             api_base_url: 3D 모델 생성 API의 기본 URL
             enable_quality_check: 이미지 품질 검증 활성화 여부
         """
-        self.api_base_url = api_base_url
+        self.parameter_manager = parameter_manager or Model3DParameterManager()
+        self.runtime_store = RuntimeModel3DParameterStore(self.parameter_manager)
+        loaded_params = self.runtime_store.get_params()
+        self.api_base_url = api_base_url or loaded_params.get('api', {}).get('base_url', DEFAULT_API_BASE_URL)
+        self.quality_thresholds = loaded_params.get('quality_thresholds', {})
+        self.generation_defaults = loaded_params.get('generation_defaults', {})
         self.enable_quality_check = enable_quality_check
         self.quality_validator = None
         
@@ -73,6 +76,13 @@ class Model3DGenerator:
                 logger.info("이미지 품질 검증기 초기화 완료")
             except Exception as e:
                 logger.warning(f"품질 검증기 초기화 실패 (기본 검증만 사용): {e}")
+
+    def _refresh_runtime_settings(self) -> None:
+        """요청 처리 직전에 서버 런타임 설정을 로드"""
+        loaded_params = self.runtime_store.get_params()
+        self.api_base_url = loaded_params.get('api', {}).get('base_url', DEFAULT_API_BASE_URL)
+        self.quality_thresholds = loaded_params.get('quality_thresholds', {})
+        self.generation_defaults = loaded_params.get('generation_defaults', {})
     
     def validate_image_quality(self, image_path: str, strict_mode: bool = False) -> Dict[str, Any]:
         """
@@ -112,6 +122,8 @@ class Model3DGenerator:
             result['can_proceed'] = True
             result['quality_tier'] = 'unknown'
             return result
+
+        self._refresh_runtime_settings()
         
         try:
             logger.info(f"[검증] 이미지 품질 검증 시작: {image_path}")
@@ -141,29 +153,33 @@ class Model3DGenerator:
             # 품질 등급 결정 (strict_mode에 따라 통과 기준이 다름)
             # strict_mode=True: 80점 이상만 통과
             # strict_mode=False: 50점 이상 통과
-            min_required_score = QUALITY_THRESHOLDS['premium'] if strict_mode else QUALITY_THRESHOLDS['minimum']
+            premium_threshold = self.quality_thresholds.get('premium', 80)
+            standard_threshold = self.quality_thresholds.get('standard', 70)
+            minimum_threshold = self.quality_thresholds.get('minimum', 50)
+
+            fixed_processing_params = dict(self.generation_defaults)
             
-            if score >= QUALITY_THRESHOLDS['premium']:
+            if score >= premium_threshold:
                 result['quality_tier'] = 'premium'
                 result['can_proceed'] = True
-                result['processing_params'] = self._get_premium_params()
+                result['processing_params'] = fixed_processing_params
                 logger.info(f"[PREMIUM] 프리미엄 품질 ({score:.1f}점) - 최적의 3D 모델 생성 가능")
                 
-            elif score >= QUALITY_THRESHOLDS['standard']:
+            elif score >= standard_threshold:
                 result['quality_tier'] = 'standard'
                 # strict_mode일 때는 80점 미만이면 거부
                 result['can_proceed'] = not strict_mode
-                result['processing_params'] = self._get_standard_params()
+                result['processing_params'] = fixed_processing_params
                 if strict_mode:
                     logger.warning(f"[REJECTED] 표준 품질 ({score:.1f}점) - 엄격 모드에서 거부됨 (80점 이상 필요)")
                 else:
                     logger.info(f"[STANDARD] 표준 품질 ({score:.1f}점) - 3D 모델 생성 가능")
                 
-            elif score >= QUALITY_THRESHOLDS['minimum']:
+            elif score >= minimum_threshold:
                 result['quality_tier'] = 'basic'
                 # strict_mode일 때는 80점 미만이면 거부
                 result['can_proceed'] = not strict_mode
-                result['processing_params'] = self._get_basic_params()
+                result['processing_params'] = fixed_processing_params
                 if strict_mode:
                     logger.warning(f"[REJECTED] 기본 품질 ({score:.1f}점) - 엄격 모드에서 거부됨 (80점 이상 필요)")
                 else:
@@ -196,36 +212,6 @@ class Model3DGenerator:
             result['quality_tier'] = 'unknown'
             return result
     
-    def _get_premium_params(self) -> Dict[str, Any]:
-        """프리미엄 품질 이미지용 파라미터"""
-        return {
-            'ss_sampling_steps': 25,
-            'slat_sampling_steps': 25,
-            'mesh_simplify_ratio': 0.90,
-            'texture_size': 1024,
-            'enhancement': 'minimal'
-        }
-    
-    def _get_standard_params(self) -> Dict[str, Any]:
-        """표준 품질 이미지용 파라미터"""
-        return {
-            'ss_sampling_steps': 20,
-            'slat_sampling_steps': 20,
-            'mesh_simplify_ratio': 0.85,
-            'texture_size': 512,
-            'enhancement': 'moderate'
-        }
-    
-    def _get_basic_params(self) -> Dict[str, Any]:
-        """기본 품질 이미지용 파라미터"""
-        return {
-            'ss_sampling_steps': 15,
-            'slat_sampling_steps': 15,
-            'mesh_simplify_ratio': 0.80,
-            'texture_size': 512,
-            'enhancement': 'aggressive'
-        }
-    
     def image_to_base64(self, image_path: str) -> str:
         """
         이미지 파일을 base64 문자열로 변환
@@ -257,13 +243,13 @@ class Model3DGenerator:
         image_path: str,
         output_dir: str,
         member_id: int,
-        seed: int = 42,
-        ss_guidance_strength: float = 7.5,
-        ss_sampling_steps: int = 20,  # 최적화: 기본값 30 → 20 (33% 빠름)
-        slat_guidance_strength: float = 7.5,
-        slat_sampling_steps: int = 20,  # 최적화: 기본값 30 → 20 (33% 빠름)
-        mesh_simplify_ratio: float = 0.85,  # 최적화: 기본값 0.95 → 0.85 (더 단순한 메시)
-        texture_size: int = 512  # 최적화: 기본값 1024 → 512 (텍스처 처리 75% 빠름)
+        seed: Optional[int] = None,
+        ss_guidance_strength: Optional[float] = None,
+        ss_sampling_steps: Optional[int] = None,
+        slat_guidance_strength: Optional[float] = None,
+        slat_sampling_steps: Optional[int] = None,
+        mesh_simplify_ratio: Optional[float] = None,
+        texture_size: Optional[int] = None
     ) -> str:
         """
         실제 AI API를 사용하여 3D 모델 생성
@@ -294,6 +280,18 @@ class Model3DGenerator:
         """
         logger.info(f"이미지를 base64로 변환 중: {image_path}")
         image_base64 = self.image_to_base64(image_path)
+
+        self._refresh_runtime_settings()
+
+        defaults = dict(self.generation_defaults)
+        seed = defaults.get('seed', 42) if seed is None else seed
+        ss_guidance_strength = defaults.get('ss_guidance_strength', 7.5) if ss_guidance_strength is None else ss_guidance_strength
+        ss_sampling_steps = defaults.get('ss_sampling_steps', 20) if ss_sampling_steps is None else ss_sampling_steps
+        slat_guidance_strength = defaults.get('slat_guidance_strength', 7.5) if slat_guidance_strength is None else slat_guidance_strength
+        slat_sampling_steps = defaults.get('slat_sampling_steps', 20) if slat_sampling_steps is None else slat_sampling_steps
+        mesh_simplify_ratio = defaults.get('mesh_simplify_ratio', 0.85) if mesh_simplify_ratio is None else mesh_simplify_ratio
+        texture_size = defaults.get('texture_size', 512) if texture_size is None else texture_size
+        output_format = defaults.get('output_format', 'glb')
         
         # 3D 모델 생성 파라미터 설정
         params = {
@@ -305,7 +303,7 @@ class Model3DGenerator:
             'slat_sampling_steps': slat_sampling_steps,
             'mesh_simplify_ratio': mesh_simplify_ratio,
             'texture_size': texture_size,
-            'output_format': 'glb'
+            'output_format': output_format
         }
         
         # 3D 생성 API 호출
@@ -397,9 +395,9 @@ class Model3DGenerator:
         output_dir: str,
         member_id: int,
         strict_mode: bool = False,
-        seed: int = 42,
-        ss_guidance_strength: float = 7.5,
-        slat_guidance_strength: float = 7.5
+        seed: Optional[int] = None,
+        ss_guidance_strength: Optional[float] = None,
+        slat_guidance_strength: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         🚀 품질 검증이 통합된 3D 모델 생성 (권장 메서드)
@@ -464,10 +462,18 @@ class Model3DGenerator:
             
             # 2. 품질 기반 파라미터 설정
             logger.info("=" * 60)
-            logger.info("[STEP2] 품질 기반 파라미터 최적화")
+            logger.info("[STEP2] 고정 파라미터 적용")
             logger.info("=" * 60)
             
-            params = quality_result.get('processing_params', self._get_standard_params())
+            defaults = self.parameter_manager.get_generation_defaults()
+            if seed is None:
+                seed = defaults.get('seed', 42)
+            if ss_guidance_strength is None:
+                ss_guidance_strength = defaults.get('ss_guidance_strength', 7.5)
+            if slat_guidance_strength is None:
+                slat_guidance_strength = defaults.get('slat_guidance_strength', 7.5)
+
+            params = dict(self.generation_defaults)
             logger.info(f"품질 등급: {quality_result['quality_tier']}")
             logger.info(f"적용 파라미터: {params}")
             
@@ -487,11 +493,11 @@ class Model3DGenerator:
                 member_id=member_id,
                 seed=seed,
                 ss_guidance_strength=ss_guidance_strength,
-                ss_sampling_steps=params.get('ss_sampling_steps', 20),
+                ss_sampling_steps=params.get('ss_sampling_steps', defaults.get('ss_sampling_steps', 20)),
                 slat_guidance_strength=slat_guidance_strength,
-                slat_sampling_steps=params.get('slat_sampling_steps', 20),
-                mesh_simplify_ratio=params.get('mesh_simplify_ratio', 0.85),
-                texture_size=params.get('texture_size', 512)
+                slat_sampling_steps=params.get('slat_sampling_steps', defaults.get('slat_sampling_steps', 20)),
+                mesh_simplify_ratio=params.get('mesh_simplify_ratio', defaults.get('mesh_simplify_ratio', 0.85)),
+                texture_size=params.get('texture_size', defaults.get('texture_size', 512))
             )
             
             result['success'] = True
@@ -527,12 +533,16 @@ class Model3DGenerator:
         """
         try:
             score = get_image_score(image_path)
+            self._refresh_runtime_settings()
+            premium_threshold = self.quality_thresholds.get('premium', 80)
+            standard_threshold = self.quality_thresholds.get('standard', 70)
+            minimum_threshold = self.quality_thresholds.get('minimum', 50)
             
-            if score >= QUALITY_THRESHOLDS['premium']:
+            if score >= premium_threshold:
                 return True, score, f"[PREMIUM] 프리미엄 품질 ({score:.1f}점)"
-            elif score >= QUALITY_THRESHOLDS['standard']:
+            elif score >= standard_threshold:
                 return True, score, f"[OK] 표준 품질 ({score:.1f}점)"
-            elif score >= QUALITY_THRESHOLDS['minimum']:
+            elif score >= minimum_threshold:
                 return True, score, f"[WARN] 기본 품질 ({score:.1f}점) - 품질 저하 가능"
             else:
                 return False, score, f"[FAIL] 품질 미달 ({score:.1f}점) - 재촬영 필요"
@@ -549,6 +559,7 @@ class Model3DGenerator:
             API가 정상 작동 중이면 True, 아니면 False
         """
         try:
+            self._refresh_runtime_settings()
             response = requests.get(f"{self.api_base_url}/health", timeout=5)
             return response.status_code == 200
         except Exception as e:

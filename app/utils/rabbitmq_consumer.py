@@ -16,6 +16,7 @@ from threading import Thread
 from typing import Dict, Any, Tuple, Optional
 
 from .model3d_generator import Model3DGenerator, Model3DServerUnavailableError
+from .model3d_params import Model3DParameterManager
 from .s3_manager import S3Manager
 
 logger = logging.getLogger(__name__)
@@ -181,7 +182,8 @@ class Model3DConsumer:
         self.producer = RabbitMQProducer(config)
         
         # 3D 모델 생성기 인스턴스 생성
-        self.model_generator = Model3DGenerator()
+        self.parameter_manager = Model3DParameterManager()
+        self.model_generator = Model3DGenerator(parameter_manager=self.parameter_manager)
         
         # S3 Manager 인스턴스 생성 (S3 사용 시에만)
         if self.use_s3:
@@ -634,11 +636,7 @@ class Model3DConsumer:
             return self.model_generator.generate_3d_model(
                 image_path=image_path,
                 output_dir=self.config['MODEL3D_FOLDER'],
-                member_id=member_id,
-                ss_sampling_steps=20,
-                slat_sampling_steps=20,
-                mesh_simplify_ratio=0.85,
-                texture_size=512
+                member_id=member_id
             )
     
     def _upload_model_to_s3(self, model_3d_path: str, member_id: int, model3d_id: int) -> Tuple[bool, str]:

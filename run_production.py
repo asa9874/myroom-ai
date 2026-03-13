@@ -13,6 +13,7 @@ FastAPI 성능 저하를 방지합니다.
 import os
 import sys
 import argparse
+import subprocess
 from dotenv import load_dotenv
 
 # .env 파일에서 환경변수 로드
@@ -69,6 +70,12 @@ def parse_arguments():
         dest='no_s3',
         help='S3 업로드를 비활성화하고 로컬 URL을 사용합니다'
     )
+
+    parser.add_argument(
+        '-ui', '--ui',
+        action='store_true',
+        help='서버와 함께 3D 파라미터 관리 GUI를 실행합니다'
+    )
     
     return parser.parse_args()
 
@@ -86,6 +93,16 @@ def index():
 if __name__ == '__main__':
     # 커맨드라인 인자 파싱
     args = parse_arguments()
+
+    if args.ui:
+        try:
+            app.logger.info('3D 파라미터 관리 GUI를 백그라운드에서 실행합니다.')
+            subprocess.Popen(
+                [sys.executable, '-m', 'gui.run_gui'],
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+        except Exception as e:
+            app.logger.warning(f'GUI 실행 실패: {e}')
     
     # S3 사용 여부 설정
     use_s3 = args.use_s3 and not args.no_s3
