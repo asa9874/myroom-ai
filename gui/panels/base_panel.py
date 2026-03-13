@@ -1,8 +1,8 @@
-from tkinter import ttk
 from typing import Any
+import customtkinter as ctk
 
 
-class BaseSettingsPanel(ttk.Frame):
+class BaseSettingsPanel(ctk.CTkFrame):
     """확장 가능한 설정 패널 기본 클래스"""
 
     panel_title = "Settings"

@@ -1,46 +1,23 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 from typing import Dict
 import requests
+import customtkinter as ctk
 
 from app.utils.model3d_params import Model3DParameterManager
 from .base_panel import BaseSettingsPanel
 
 
-class ToolTip:
-    def __init__(self, widget, text: str):
-        self.widget = widget
-        self.text = text
-        self.tip_window = None
-        self.widget.bind("<Enter>", self._show)
-        self.widget.bind("<Leave>", self._hide)
-
-    def _show(self, _event=None):
-        if self.tip_window or not self.text:
-            return
-        x = self.widget.winfo_rootx() + 16
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
-        self.tip_window = tw = tk.Toplevel(self.widget)
-        tw.wm_overrideredirect(True)
-        tw.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(
-            tw,
-            text=self.text,
-            justify="left",
-            relief="solid",
-            borderwidth=1,
-            font=("맑은 고딕", 9)
-        )
-        label.pack(ipadx=6, ipady=4)
-
-    def _hide(self, _event=None):
-        if self.tip_window:
-            self.tip_window.destroy()
-            self.tip_window = None
-
-
 class Model3DParametersPanel(BaseSettingsPanel):
     panel_title = "3D Params"
+    BG_PRIMARY = "#0f1013"
+    BG_CARD = "#151820"
+    BG_INPUT = "#1a1f27"
+    TEXT_PRIMARY = "#f5f7fa"
+    TEXT_SECONDARY = "#b8bec9"
+    TEXT_MUTED = "#8e97a7"
+    ACCENT = "#2e3440"
+    ACCENT_HOVER = "#3a4150"
     PRESET_FIELDS = [
         "generation_defaults.ss_guidance_strength",
         "generation_defaults.ss_sampling_steps",
@@ -81,13 +58,10 @@ class Model3DParametersPanel(BaseSettingsPanel):
         super().__init__(parent)
         self.manager = Model3DParameterManager()
         self.runtime_api_base = "http://127.0.0.1:5000/api/model3d-params"
-        self.entries: Dict[str, tk.Entry] = {}
-        self.help_labels: Dict[str, tk.Label] = {}
-        self.tooltips = []
-        self.canvas = None
-        self.scrollbar = None
+        self.entries: Dict[str, ctk.CTkEntry] = {}
+        self.help_labels: Dict[str, ctk.CTkLabel] = {}
         self.content_frame = None
-        self._canvas_window_id = None
+        self.configure(fg_color=self.BG_PRIMARY)
         self._build_ui()
         self.load_data()
 
@@ -95,24 +69,24 @@ class Model3DParametersPanel(BaseSettingsPanel):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        self.canvas = tk.Canvas(self, highlightthickness=0)
-        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
-        self.canvas.grid(row=0, column=0, sticky="nsew")
-        self.scrollbar.grid(row=0, column=1, sticky="ns")
-
-        self.content_frame = ttk.Frame(self.canvas)
-        self._canvas_window_id = self.canvas.create_window((0, 0), window=self.content_frame, anchor="nw")
-        self.content_frame.bind("<Configure>", self._on_frame_configure)
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-        self.canvas.bind("<Enter>", self._bind_mousewheel)
-        self.canvas.bind("<Leave>", self._unbind_mousewheel)
+        self.content_frame = ctk.CTkScrollableFrame(
+            self,
+            corner_radius=10,
+            fg_color=self.BG_PRIMARY,
+            scrollbar_button_color=self.ACCENT,
+            scrollbar_button_hover_color=self.ACCENT_HOVER
+        )
+        self.content_frame.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
         parent_widget = self.content_frame
         row = 0
 
-        title = ttk.Label(parent_widget, text="3D 모델 생성 파라미터", font=("맑은 고딕", 11, "bold"))
+        title = ctk.CTkLabel(
+            parent_widget,
+            text="3D 모델 생성 파라미터",
+            font=("맑은 고딕", 20, "bold"),
+            text_color=self.TEXT_PRIMARY
+        )
         title.grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 8))
         row += 1
 
@@ -136,71 +110,125 @@ class Model3DParametersPanel(BaseSettingsPanel):
         ]
 
         for section_title, fields in sections:
-            section = ttk.Label(parent_widget, text=section_title, font=("맑은 고딕", 10, "bold"))
+            section = ctk.CTkLabel(
+                parent_widget,
+                text=section_title,
+                font=("맑은 고딕", 15, "bold"),
+                text_color=self.TEXT_PRIMARY
+            )
             section.grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 4))
             row += 1
 
             for key, label in fields:
-                label_widget = ttk.Label(parent_widget, text=label)
+                label_widget = ctk.CTkLabel(
+                    parent_widget,
+                    text=label,
+                    text_color=self.TEXT_SECONDARY,
+                    font=("맑은 고딕", 13, "bold")
+                )
                 label_widget.grid(row=row, column=0, sticky="w", padx=10, pady=3)
-                entry = ttk.Entry(parent_widget, width=45)
+                entry = ctk.CTkEntry(
+                    parent_widget,
+                    width=380,
+                    height=34,
+                    fg_color=self.BG_INPUT,
+                    border_color=self.ACCENT,
+                    text_color=self.TEXT_PRIMARY,
+                    font=("맑은 고딕", 12)
+                )
                 entry.grid(row=row, column=1, sticky="we", padx=10, pady=3)
                 self.entries[key] = entry
 
                 description = self._get_field_description(key)
                 if description:
-                    help_label = tk.Label(
+                    help_label = ctk.CTkLabel(
                         parent_widget,
                         text=description,
                         anchor="w",
                         justify="left",
+                        text_color=self.TEXT_MUTED,
                         wraplength=620,
-                        font=("맑은 고딕", 8)
+                        font=("맑은 고딕", 11)
                     )
                     help_label.grid(row=row + 1, column=1, sticky="w", padx=10, pady=(0, 4))
                     self.help_labels[key] = help_label
-                    self.tooltips.append(ToolTip(label_widget, description))
-                    self.tooltips.append(ToolTip(entry, description))
                     row += 2
                 else:
                     row += 1
 
-        preset_frame = ttk.LabelFrame(parent_widget, text="프리셋")
-        preset_frame.grid(row=row, column=0, columnspan=2, sticky="we", padx=10, pady=(8, 6))
-        ttk.Button(preset_frame, text="저품질", command=lambda: self._apply_preset("low")).pack(side="left", padx=8, pady=8)
-        ttk.Button(preset_frame, text="일반", command=lambda: self._apply_preset("normal")).pack(side="left", padx=8, pady=8)
-        ttk.Button(preset_frame, text="고품질", command=lambda: self._apply_preset("high")).pack(side="left", padx=8, pady=8)
+        preset_section_title = ctk.CTkLabel(
+            parent_widget,
+            text="프리셋",
+            font=("맑은 고딕", 15, "bold"),
+            text_color=self.TEXT_PRIMARY
+        )
+        preset_section_title.grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=(8, 4))
         row += 1
 
-        button_frame = ttk.Frame(parent_widget)
+        preset_frame = ctk.CTkFrame(parent_widget, fg_color=self.BG_CARD, corner_radius=10)
+        preset_frame.grid(row=row, column=0, columnspan=2, sticky="we", padx=10, pady=(8, 6))
+        ctk.CTkButton(
+            preset_frame,
+            text="저품질",
+            command=lambda: self._apply_preset("low"),
+            width=110,
+            height=34,
+            fg_color=self.ACCENT,
+            hover_color=self.ACCENT_HOVER,
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 12, "bold")
+        ).pack(side="left", padx=8, pady=8)
+        ctk.CTkButton(
+            preset_frame,
+            text="일반",
+            command=lambda: self._apply_preset("normal"),
+            width=110,
+            height=34,
+            fg_color=self.ACCENT,
+            hover_color=self.ACCENT_HOVER,
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 12, "bold")
+        ).pack(side="left", padx=8, pady=8)
+        ctk.CTkButton(
+            preset_frame,
+            text="고품질",
+            command=lambda: self._apply_preset("high"),
+            width=110,
+            height=34,
+            fg_color=self.ACCENT,
+            hover_color=self.ACCENT_HOVER,
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 12, "bold")
+        ).pack(side="left", padx=8, pady=8)
+        row += 1
+
+        button_frame = ctk.CTkFrame(parent_widget, fg_color="transparent")
         button_frame.grid(row=row, column=0, columnspan=2, sticky="e", padx=10, pady=10)
 
-        ttk.Button(button_frame, text="새로고침", command=self.load_data).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="런타임 적용", command=self._on_apply_clicked).pack(side="left", padx=5)
+        ctk.CTkButton(
+            button_frame,
+            text="새로고침",
+            command=self.load_data,
+            width=110,
+            height=36,
+            fg_color=self.ACCENT,
+            hover_color=self.ACCENT_HOVER,
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 12, "bold")
+        ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            button_frame,
+            text="런타임 적용",
+            command=self._on_apply_clicked,
+            width=130,
+            height=36,
+            fg_color="#374151",
+            hover_color="#4b5563",
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 12, "bold")
+        ).pack(side="left", padx=5)
 
         parent_widget.columnconfigure(1, weight=1)
-
-    def _on_frame_configure(self, _event=None) -> None:
-        if self.canvas is not None:
-            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-
-    def _on_canvas_configure(self, event) -> None:
-        if self.canvas is not None and self._canvas_window_id is not None:
-            self.canvas.itemconfigure(self._canvas_window_id, width=event.width)
-
-    def _on_mousewheel(self, event) -> None:
-        if self.canvas is None:
-            return
-        delta = event.delta
-        if delta == 0:
-            return
-        self.canvas.yview_scroll(int(-delta / 120), "units")
-
-    def _bind_mousewheel(self, _event=None) -> None:
-        self.bind_all("<MouseWheel>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, _event=None) -> None:
-        self.unbind_all("<MouseWheel>")
 
     def load_data(self) -> None:
         params = self._load_from_runtime_api()
@@ -214,7 +242,7 @@ class Model3DParametersPanel(BaseSettingsPanel):
 
             help_label = self.help_labels.get(key)
             if help_label is not None:
-                help_label.config(text=self._get_field_description(key, params))
+                help_label.configure(text=self._get_field_description(key, params))
 
     def save_data(self) -> None:
         updated = self.manager.load()
