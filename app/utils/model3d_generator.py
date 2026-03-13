@@ -27,6 +27,9 @@ from app.utils.image_quality import (
 
 logger = logging.getLogger(__name__)
 
+REQUEST_CONNECT_TIMEOUT_SECONDS = 30
+REQUEST_READ_TIMEOUT_SECONDS = 1200  # 20분
+
 
 class Model3DServerUnavailableError(Exception):
     """3D 모델링 서버 연결 불가 예외"""
@@ -320,7 +323,7 @@ class Model3DGenerator:
             response = requests.post(
                 f"{self.api_base_url}/generate_no_preview",
                 data=params,
-                timeout=300
+                timeout=(REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
             )
             response.raise_for_status()
         except requests.exceptions.ConnectionError as ce:
@@ -342,7 +345,7 @@ class Model3DGenerator:
             try:
                 status_response = requests.get(
                     f"{self.api_base_url}/status",
-                    timeout=30
+                    timeout=(REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
                 )
                 status_response.raise_for_status()
                 status = status_response.json()
@@ -374,7 +377,7 @@ class Model3DGenerator:
         try:
             model_response = requests.get(
                 f"{self.api_base_url}/download/model",
-                timeout=60
+                timeout=(REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
             )
             model_response.raise_for_status()
         except requests.RequestException as e:
@@ -454,7 +457,7 @@ class Model3DGenerator:
                     endpoint,
                     data=form_data,
                     files=files_payload,
-                    timeout=300
+                    timeout=(REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
                 )
 
             # 400이면 2차 시도: image_list_base64 반복 필드
@@ -468,7 +471,7 @@ class Model3DGenerator:
                 response = requests.post(
                     endpoint,
                     data=fallback_payload,
-                    timeout=300
+                    timeout=(REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
                 )
 
             response.raise_for_status()
@@ -501,7 +504,7 @@ class Model3DGenerator:
             try:
                 status_response = requests.get(
                     f"{self.api_base_url}/status",
-                    timeout=30
+                    timeout=(REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
                 )
                 status_response.raise_for_status()
                 status = status_response.json()
@@ -532,7 +535,7 @@ class Model3DGenerator:
         try:
             model_response = requests.get(
                 f"{self.api_base_url}/download/model",
-                timeout=60
+                timeout=(REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
             )
             model_response.raise_for_status()
         except requests.RequestException as e:
@@ -724,7 +727,10 @@ class Model3DGenerator:
         """
         try:
             self._refresh_runtime_settings()
-            response = requests.get(f"{self.api_base_url}/health", timeout=5)
+            response = requests.get(
+                f"{self.api_base_url}/health",
+                timeout=(REQUEST_CONNECT_TIMEOUT_SECONDS, REQUEST_READ_TIMEOUT_SECONDS)
+            )
             return response.status_code == 200
         except Exception as e:
             logger.warning(f"API 상태 확인 실패: {str(e)}")

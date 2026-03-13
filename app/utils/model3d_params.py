@@ -22,12 +22,12 @@ DEFAULT_MODEL3D_PARAMS: Dict[str, Any] = {
     },
     "generation_defaults": {
         "seed": 42,
-        "ss_guidance_strength": 7.5,
-        "ss_sampling_steps": 20,
-        "slat_guidance_strength": 7.5,
-        "slat_sampling_steps": 20,
-        "mesh_simplify_ratio": 0.85,
-        "texture_size": 512,
+        "ss_guidance_strength": 8.0,
+        "ss_sampling_steps": 16,
+        "slat_guidance_strength": 3.0,
+        "slat_sampling_steps": 16,
+        "mesh_simplify_ratio": 0.95,
+        "texture_size": 1024,
         "output_format": "glb"
     }
 }
@@ -119,12 +119,12 @@ class Model3DParameterManager:
 
         defaults = params.setdefault("generation_defaults", {})
         defaults["seed"] = int(defaults.get("seed", 42))
-        defaults["ss_guidance_strength"] = float(defaults.get("ss_guidance_strength", 7.5))
-        defaults["ss_sampling_steps"] = int(defaults.get("ss_sampling_steps", 20))
-        defaults["slat_guidance_strength"] = float(defaults.get("slat_guidance_strength", 7.5))
-        defaults["slat_sampling_steps"] = int(defaults.get("slat_sampling_steps", 20))
-        defaults["mesh_simplify_ratio"] = float(defaults.get("mesh_simplify_ratio", 0.85))
-        defaults["texture_size"] = int(defaults.get("texture_size", 512))
+        defaults["ss_guidance_strength"] = float(defaults.get("ss_guidance_strength", 8.0))
+        defaults["ss_sampling_steps"] = int(defaults.get("ss_sampling_steps", 16))
+        defaults["slat_guidance_strength"] = float(defaults.get("slat_guidance_strength", 3.0))
+        defaults["slat_sampling_steps"] = int(defaults.get("slat_sampling_steps", 16))
+        defaults["mesh_simplify_ratio"] = float(defaults.get("mesh_simplify_ratio", 0.95))
+        defaults["texture_size"] = int(defaults.get("texture_size", 1024))
         defaults["output_format"] = str(defaults.get("output_format", "glb"))
 
         defaults["ss_sampling_steps"] = max(1, defaults["ss_sampling_steps"])
