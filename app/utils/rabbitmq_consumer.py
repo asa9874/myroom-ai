@@ -212,6 +212,7 @@ class Model3DConsumer:
             properties: 메시지 속성
             body: 메시지 본문 (bytes)
         """
+        generation_job_id = None
         try:
             raw_payload = body.decode('utf-8', errors='replace')
             self.monitor.record_event(
@@ -241,6 +242,14 @@ class Model3DConsumer:
             multi_image_mode = isinstance(image_urls, list) and len(image_urls) > 0
             if not single_image_mode and not multi_image_mode:
                 raise ValueError("imageUrl 또는 imageUrls(배열) 중 하나는 필수입니다.")
+
+            generation_job_id = self.monitor.start_generation(
+                member_id=member_id,
+                model3d_id=model3d_id,
+                input_image_url=image_url,
+                input_image_urls=image_urls,
+                settings=self._get_runtime_snapshot(),
+            )
             
             # 이미지 URL로 3D 모델 생성 처리 (새로운 필드 포함)
             result = self.process_3d_model(
@@ -250,7 +259,8 @@ class Model3DConsumer:
                 model3d_id=model3d_id,
                 furniture_type=furniture_type,
                 is_shared=is_shared,
-                timestamp=timestamp
+                timestamp=timestamp,
+                generation_job_id=generation_job_id
             )
             
             # 처리 성공 시 ACK
@@ -259,22 +269,38 @@ class Model3DConsumer:
             logger.info(f"=== 메시지 처리 완료 ===")
             logger.info(f"Member ID: {member_id}, Model3D ID: {model3d_id}")
             logger.info(f"Result: {result}")
+
+            if generation_job_id:
+                mapped_status = "completed" if result.get('status') == 'success' else "failed"
+                self.monitor.update_generation(
+                    generation_job_id,
+                    status=mapped_status,
+                    input_image_path=result.get('imagePath'),
+                    model3d_path=result.get('model3dPath'),
+                    model3d_url=result.get('model3dUrl'),
+                    message=result.get('error') or result.get('status') or "완료",
+                )
             
         except json.JSONDecodeError as e:
             logger.error(f"JSON 파싱 오류: {e}")
             logger.error(f"원본 메시지: {body}")
+            if generation_job_id:
+                self.monitor.update_generation(generation_job_id, status='failed', message=f'JSON 파싱 오류: {e}')
             # JSON 파싱 오류는 재시도해도 해결 불가능하므로 NACK (재시도 안 함)
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
             
         except Exception as e:
             logger.error(f"메시지 처리 중 오류 발생: {e}", exc_info=True)
+            if generation_job_id:
+                self.monitor.update_generation(generation_job_id, status='failed', message=str(e))
             # 일반 오류는 재시도 가능하도록 requeue=True
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
     
     def process_3d_model(self, image_url: str, member_id: int, model3d_id: int,
                         image_urls: Optional[list] = None,
                         furniture_type: str = None, is_shared: bool = False,
-                        timestamp: int = None) -> Dict[str, Any]:
+                        timestamp: int = None,
+                        generation_job_id: Optional[str] = None) -> Dict[str, Any]:
         """
         3D 모델 생성 로직
         
@@ -310,6 +336,13 @@ class Model3DConsumer:
                 image_path = self._save_image(image_data, member_id)
                 image_paths = [image_path]
                 logger.info(f"이미지 저장 완료: {image_path}")
+
+            if generation_job_id:
+                self.monitor.update_generation(
+                    generation_job_id,
+                    input_image_path=image_path,
+                    input_image_urls=image_urls or [],
+                )
 
             # 3. 입력 이미지 모드 결정
             #    MODEL3D_USE_DETECTED_OBJECT=false(기본): 원본 이미지 사용
@@ -731,6 +764,20 @@ class Model3DConsumer:
             'model3d_use_detected_object': bool(options.get('model3d_use_detected_object', True)),
             'quality_check_enabled': bool(options.get('quality_check_enabled', True)),
             'quality_check_strict_mode': bool(options.get('quality_check_strict_mode', False)),
+        }
+
+    def _get_runtime_snapshot(self) -> Dict[str, Any]:
+        try:
+            params = self.runtime_store.get_params()
+        except Exception:
+            params = self.parameter_manager.load()
+
+        if not isinstance(params, dict):
+            return {}
+
+        return {
+            'runtime_options': params.get('runtime_options', {}),
+            'generation_defaults': params.get('generation_defaults', {}),
         }
     
     def _upload_model_to_s3(self, model_3d_path: str, member_id: int, model3d_id: int) -> Tuple[bool, str]:

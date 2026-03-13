@@ -24,10 +24,27 @@ event_model = ns.model('MqEvent', {
     'details': fields.Raw(description='상세 데이터')
 })
 
+generation_model = ns.model('GenerationItem', {
+    'job_id': fields.String(description='작업 ID'),
+    'status': fields.String(description='processing/completed/failed'),
+    'member_id': fields.Raw(description='회원 ID'),
+    'model3d_id': fields.Raw(description='모델 ID'),
+    'input_image_url': fields.String(description='입력 이미지 URL'),
+    'input_image_urls': fields.List(fields.String(description='멀티뷰 입력 이미지 URL 목록')),
+    'input_image_path': fields.String(description='저장된 입력 이미지 경로'),
+    'model3d_path': fields.String(description='생성된 모델 파일 경로'),
+    'model3d_url': fields.String(description='생성된 모델 URL'),
+    'settings': fields.Raw(description='생성 시점 설정값'),
+    'message': fields.String(description='상태 메시지'),
+    'created_at': fields.String(description='생성 시각'),
+    'updated_at': fields.String(description='갱신 시각')
+})
+
 overview_model = ns.model('MqOverview', {
     'success': fields.Boolean(description='성공 여부'),
     'connections': fields.List(fields.Nested(connection_model)),
     'events': fields.List(fields.Nested(event_model)),
+    'generations': fields.List(fields.Nested(generation_model)),
 })
 
 
@@ -44,4 +61,5 @@ class MqOverview(Resource):
             'success': True,
             'connections': snapshot['connections'],
             'events': snapshot['events'],
+            'generations': snapshot['generations'],
         }

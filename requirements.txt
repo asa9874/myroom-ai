@@ -17,6 +17,7 @@ google-genai>=0.4.0
 ultralytics>=8.0.0
 boto3>=1.26.0
 customtkinter>=5.2.0
+panda3d>=1.10.15
 
 # 프로덕션 성능 최적화
 gunicorn>=21.0.0  # WSGI HTTP 서버 (멀티워커 지원)

@@ -12,7 +12,7 @@ class ParameterManagementApp:
 
         self.root = ctk.CTk()
         self.root.title("MyRoom AI - Parameter Manager")
-        self.root.geometry("860x760")
+        self.root.geometry("1760x920")
         self.root.configure(fg_color="#0b0b0d")
 
         self.tabview = ctk.CTkTabview(self.root)
