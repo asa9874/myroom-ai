@@ -11,8 +11,9 @@ import logging
 import os
 import requests
 import time
+from contextlib import ExitStack
 from datetime import datetime
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from .model3d_params import Model3DParameterManager, RuntimeModel3DParameterStore
 
 # 이미지 품질 검증 모듈 import
@@ -237,6 +238,13 @@ class Model3DGenerator:
         except Exception as e:
             logger.error(f"이미지 인코딩 실패: {str(e)}")
             raise
+
+    def images_to_base64_list(self, image_paths: List[str]) -> List[str]:
+        """여러 이미지 파일을 base64 문자열 리스트로 변환"""
+        encoded_images: List[str] = []
+        for image_path in image_paths:
+            encoded_images.append(self.image_to_base64(image_path))
+        return encoded_images
     
     def generate_3d_model(
         self,
@@ -387,6 +395,162 @@ class Model3DGenerator:
         logger.info(f"3D 모델 저장 완료: {filepath}")
         logger.info(f"파일 크기: {len(model_response.content)} bytes")
         
+        return filepath
+
+    def generate_3d_model_multi_view(
+        self,
+        image_paths: List[str],
+        output_dir: str,
+        member_id: int,
+        seed: Optional[int] = None,
+        ss_guidance_strength: Optional[float] = None,
+        ss_sampling_steps: Optional[int] = None,
+        slat_guidance_strength: Optional[float] = None,
+        slat_sampling_steps: Optional[int] = None,
+        mesh_simplify_ratio: Optional[float] = None,
+        texture_size: Optional[int] = None
+    ) -> str:
+        """여러 뷰 이미지를 사용하여 3D 모델 생성"""
+        if not image_paths:
+            raise ValueError("멀티뷰 생성에는 최소 1개 이상의 이미지 경로가 필요합니다.")
+
+        self._refresh_runtime_settings()
+
+        defaults = dict(self.generation_defaults)
+        seed = defaults.get('seed', 42) if seed is None else seed
+        ss_guidance_strength = defaults.get('ss_guidance_strength', 7.5) if ss_guidance_strength is None else ss_guidance_strength
+        ss_sampling_steps = defaults.get('ss_sampling_steps', 20) if ss_sampling_steps is None else ss_sampling_steps
+        slat_guidance_strength = defaults.get('slat_guidance_strength', 7.5) if slat_guidance_strength is None else slat_guidance_strength
+        slat_sampling_steps = defaults.get('slat_sampling_steps', 20) if slat_sampling_steps is None else slat_sampling_steps
+        mesh_simplify_ratio = defaults.get('mesh_simplify_ratio', 0.85) if mesh_simplify_ratio is None else mesh_simplify_ratio
+        texture_size = defaults.get('texture_size', 512) if texture_size is None else texture_size
+        output_format = defaults.get('output_format', 'glb')
+
+        form_data = {
+            'seed': str(seed),
+            'ss_guidance_strength': str(ss_guidance_strength),
+            'ss_sampling_steps': str(ss_sampling_steps),
+            'slat_guidance_strength': str(slat_guidance_strength),
+            'slat_sampling_steps': str(slat_sampling_steps),
+            'mesh_simplify_ratio': str(mesh_simplify_ratio),
+            'texture_size': str(texture_size),
+            'output_format': str(output_format),
+        }
+
+        logger.info("멀티뷰 3D 모델 생성 API 호출 중...")
+        try:
+            endpoint = f"{self.api_base_url}/generate_multi_no_preview"
+
+            # 1차: file_list 바이너리 업로드 (Trellis 기본 권장 포맷)
+            with ExitStack() as stack:
+                files_payload = []
+                for image_path in image_paths:
+                    file_obj = stack.enter_context(open(image_path, 'rb'))
+                    files_payload.append(
+                        ('file_list', (os.path.basename(image_path), file_obj, 'application/octet-stream'))
+                    )
+
+                response = requests.post(
+                    endpoint,
+                    data=form_data,
+                    files=files_payload,
+                    timeout=300
+                )
+
+            # 400이면 2차 시도: image_list_base64 반복 필드
+            if response.status_code == 400:
+                logger.warning("멀티뷰 file_list 업로드가 400 반환, image_list_base64 방식으로 재시도합니다.")
+                image_base64_list = self.images_to_base64_list(image_paths)
+                fallback_payload = [(key, value) for key, value in form_data.items()]
+                for image_base64 in image_base64_list:
+                    fallback_payload.append(('image_list_base64', image_base64))
+
+                response = requests.post(
+                    endpoint,
+                    data=fallback_payload,
+                    timeout=300
+                )
+
+            response.raise_for_status()
+        except requests.exceptions.ConnectionError as ce:
+            logger.error(f"3D 모델링 서버 연결 불가: {self.api_base_url} - {str(ce)}")
+            raise Model3DServerUnavailableError(
+                api_url=self.api_base_url,
+                message="3D 모델링 서버가 실행 중이지 않습니다."
+            )
+        except requests.RequestException as e:
+            response_detail = ""
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    response_detail = e.response.text
+                except Exception:
+                    response_detail = ""
+
+            if response_detail:
+                logger.error(f"멀티뷰 3D 모델 생성 API 호출 실패: {str(e)} | response={response_detail}")
+                raise Exception(f"멀티뷰 3D 모델 생성 API 호출 실패: {str(e)} | response={response_detail}")
+
+            logger.error(f"멀티뷰 3D 모델 생성 API 호출 실패: {str(e)}")
+            raise Exception(f"멀티뷰 3D 모델 생성 API 호출 실패: {str(e)}")
+
+        logger.info("멀티뷰 3D 모델 생성 진행 상황 확인 중...")
+        max_retries = 180
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                status_response = requests.get(
+                    f"{self.api_base_url}/status",
+                    timeout=30
+                )
+                status_response.raise_for_status()
+                status = status_response.json()
+
+                progress = status.get('progress', 0)
+                logger.info(f"진행률: {progress}%")
+
+                if status['status'] == 'COMPLETE':
+                    logger.info("멀티뷰 3D 모델 생성 완료!")
+                    break
+                elif status['status'] == 'FAILED':
+                    error_msg = status.get('message', '알 수 없는 오류')
+                    logger.error(f"멀티뷰 3D 모델 생성 실패: {error_msg}")
+                    raise Exception(f"멀티뷰 3D 모델 생성 실패: {error_msg}")
+
+                time.sleep(2)
+                retry_count += 1
+
+            except requests.RequestException as e:
+                logger.warning(f"상태 확인 중 오류 (재시도 {retry_count}/{max_retries}): {str(e)}")
+                retry_count += 1
+                time.sleep(2)
+
+        if retry_count >= max_retries:
+            raise Exception("멀티뷰 3D 모델 생성 타임아웃: 최대 대기 시간 초과")
+
+        logger.info("생성된 멀티뷰 3D 모델 다운로드 중...")
+        try:
+            model_response = requests.get(
+                f"{self.api_base_url}/download/model",
+                timeout=60
+            )
+            model_response.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f"멀티뷰 3D 모델 다운로드 실패: {str(e)}")
+            raise Exception(f"멀티뷰 3D 모델 다운로드 실패: {str(e)}")
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"model3d_multi_{member_id}_{timestamp}.glb"
+        filepath = os.path.join(output_dir, filename)
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        with open(filepath, 'wb') as file:
+            file.write(model_response.content)
+
+        logger.info(f"멀티뷰 3D 모델 저장 완료: {filepath}")
+        logger.info(f"파일 크기: {len(model_response.content)} bytes")
+
         return filepath
     
     def generate_3d_model_with_validation(

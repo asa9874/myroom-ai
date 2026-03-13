@@ -210,18 +210,25 @@ class Model3DConsumer:
             logger.info(f"Message: {message}")
             
             image_url = message.get('imageUrl')
+            image_urls = message.get('imageUrls')
             member_id = message.get('memberId')
             model3d_id = message.get('model3dId')
             furniture_type = message.get('furnitureType')
             is_shared = message.get('isShared')
             timestamp = message.get('timestamp')
             
-            if not image_url or not member_id or not model3d_id:
-                raise ValueError("imageUrl, memberId, model3dId는 필수 필드입니다.")
+            if not member_id or not model3d_id:
+                raise ValueError("memberId, model3dId는 필수 필드입니다.")
+
+            single_image_mode = bool(image_url)
+            multi_image_mode = isinstance(image_urls, list) and len(image_urls) > 0
+            if not single_image_mode and not multi_image_mode:
+                raise ValueError("imageUrl 또는 imageUrls(배열) 중 하나는 필수입니다.")
             
             # 이미지 URL로 3D 모델 생성 처리 (새로운 필드 포함)
             result = self.process_3d_model(
                 image_url=image_url,
+                image_urls=image_urls,
                 member_id=member_id,
                 model3d_id=model3d_id,
                 furniture_type=furniture_type,
@@ -248,6 +255,7 @@ class Model3DConsumer:
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
     
     def process_3d_model(self, image_url: str, member_id: int, model3d_id: int,
+                        image_urls: Optional[list] = None,
                         furniture_type: str = None, is_shared: bool = False,
                         timestamp: int = None) -> Dict[str, Any]:
         """
@@ -268,34 +276,48 @@ class Model3DConsumer:
         start_time = time.time()
         
         try:
-            # 1. 이미지 다운로드
-            image_data = self._download_image(image_url)
-            logger.info(f"이미지 다운로드 완료: {len(image_data)} bytes")
-            
-            # 2. 이미지 저장
-            image_path = self._save_image(image_data, member_id)
-            logger.info(f"이미지 저장 완료: {image_path}")
+            # 1. 이미지 다운로드/저장 (단일/멀티 공용)
+            is_multi_view = isinstance(image_urls, list) and len(image_urls) > 0
+            image_path = None
+            image_paths = []
+
+            if is_multi_view:
+                logger.info(f"멀티뷰 입력 감지: {len(image_urls)}장")
+                image_data_list = self._download_images(image_urls)
+                image_paths = self._save_images(image_data_list, member_id)
+                image_path = image_paths[0] if image_paths else None
+                logger.info(f"멀티뷰 이미지 저장 완료: {len(image_paths)}장")
+            else:
+                image_data = self._download_image(image_url)
+                logger.info(f"이미지 다운로드 완료: {len(image_data)} bytes")
+                image_path = self._save_image(image_data, member_id)
+                image_paths = [image_path]
+                logger.info(f"이미지 저장 완료: {image_path}")
 
             # 3. 입력 이미지 모드 결정
             #    MODEL3D_USE_DETECTED_OBJECT=false(기본): 원본 이미지 사용
             #    MODEL3D_USE_DETECTED_OBJECT=true       : YOLO 감지 객체 크롭 이미지 사용
             use_detected_object = self.config.get('MODEL3D_USE_DETECTED_OBJECT', False)
             input_image_path = image_path
+            input_image_paths = list(image_paths)
 
-            if use_detected_object:
+            if use_detected_object and not is_multi_view:
                 logger.info("[MODE] 감지된 객체 크롭 이미지로 3D 모델 생성 (MODEL3D_USE_DETECTED_OBJECT=true)")
                 cropped_path = self._crop_detected_object(image_path, member_id)
                 if cropped_path:
                     input_image_path = cropped_path
+                    input_image_paths = [cropped_path]
                     logger.info(f"크롭된 객체 이미지 사용: {cropped_path}")
                 else:
                     logger.warning("객체 감지/크롭 실패 → 원본 이미지로 대체합니다.")
+            elif use_detected_object and is_multi_view:
+                logger.info("[MODE] 멀티뷰 요청에서는 detected_object 크롭을 건너뜁니다.")
             else:
                 logger.info("[MODE] 원본 이미지로 3D 모델 생성 (MODEL3D_USE_DETECTED_OBJECT=false)")
 
             # 4. AI 모델로 3D 생성 (실제 API 호출)
             logger.info("3D 모델 생성 중... (수 분 소요 가능)")
-            model_3d_path = self._generate_3d_model(input_image_path, member_id)
+            model_3d_path = self._generate_3d_model(input_image_path, member_id, input_image_paths)
             logger.info(f"3D 모델 생성 완료: {model_3d_path}")
             
             # 3-1. � S3 사용 여부에 따라 처리
@@ -321,6 +343,7 @@ class Model3DConsumer:
             logger.info("VectorDB에 메타데이터 저장 중...")
             metadata_saved = self._save_metadata_to_vectordb(
                 image_path=image_path,
+                image_paths=image_paths,
                 member_id=member_id,
                 model3d_id=model3d_id,
                 model3d_path=model_3d_path,  # 생성된 3D 모델 경로 포함
@@ -337,12 +360,13 @@ class Model3DConsumer:
             
             # 7. Spring Boot로 성공 메시지 전송
             # S3에서 반환받은 URL을 직접 사용
+            representative_image_url = image_url or (image_urls[0] if image_urls else '')
             self.producer.send_generation_response(
                 member_id=member_id,
                 model3d_id=model3d_id,  # model3d_id 추가
-                original_image_url=image_url,
+                original_image_url=representative_image_url,
                 model3d_url=model_3d_url,
-                thumbnail_url=image_url,  # 원본 이미지를 썸네일로 사용
+                thumbnail_url=representative_image_url,  # 원본 이미지를 썸네일로 사용
                 status="SUCCESS",
                 message="3D 모델 생성이 성공적으로 완료되었습니다.",
                 processing_time_seconds=processing_time
@@ -356,9 +380,11 @@ class Model3DConsumer:
                 'furnitureType': furniture_type,
                 'isShared': is_shared,
                 'imagePath': image_path,
+                'imagePaths': image_paths,
                 'model3dPath': model_3d_path,
                 'model3dUrl': model_3d_url,
                 'metadataStored': metadata_saved,
+                'isMultiView': is_multi_view,
                 'timestamp': timestamp,
                 'processedAt': datetime.now().isoformat(),
                 'processingTimeSeconds': processing_time
@@ -379,13 +405,14 @@ class Model3DConsumer:
 
             # Spring Boot로 3D 서버 연결 불가 메시지 전송 (FAILED)
             error_message = f"[3D서버미가동] {e.message}"
+            representative_image_url = image_url or (image_urls[0] if image_urls else '')
 
             self.producer.send_generation_response(
                 member_id=member_id,
                 model3d_id=model3d_id,
-                original_image_url=image_url,
+                original_image_url=representative_image_url,
                 model3d_url=temp_model_3d_url,
-                thumbnail_url=image_url,
+                thumbnail_url=representative_image_url,
                 status="FAILED",
                 message=error_message,
                 processing_time_seconds=processing_time
@@ -423,13 +450,14 @@ class Model3DConsumer:
             error_message = f"[품질미달] 이미지 품질 미달 ({e.score:.1f}점): {', '.join(e.issues[:2]) if e.issues else '품질 기준 미충족'}"
             if e.recommendations:
                 error_message += f" | 권장사항: {e.recommendations[0]}"
+            representative_image_url = image_url or (image_urls[0] if image_urls else '')
             
             self.producer.send_generation_response(
                 member_id=member_id,
                 model3d_id=model3d_id,
-                original_image_url=image_url,
+                original_image_url=representative_image_url,
                 model3d_url=temp_model_3d_url,
-                thumbnail_url=image_url,
+                thumbnail_url=representative_image_url,
                 status="FAILED",  # Spring Boot enum: SUCCESS, FAILED, PROCESSING
                 message=error_message,
                 processing_time_seconds=processing_time
@@ -463,12 +491,13 @@ class Model3DConsumer:
                 temp_model_3d_url = f"http://localhost:5000/models/failed_url_model3d_id_{model3d_id}_member_{member_id}.glb"
             
             # Spring Boot로 실패 메시지 전송
+            representative_image_url = image_url or (image_urls[0] if image_urls else '')
             self.producer.send_generation_response(
                 member_id=member_id,
                 model3d_id=model3d_id,  # model3d_id 추가
-                original_image_url=image_url,
+                original_image_url=representative_image_url,
                 model3d_url=temp_model_3d_url,  # 임시 URL 반환
-                thumbnail_url=image_url,  # 원본 이미지를 썸네일로 사용
+                thumbnail_url=representative_image_url,  # 원본 이미지를 썸네일로 사용
                 status="FAILED",
                 message=f"3D 모델 생성 실패: {str(e)}",
                 processing_time_seconds=processing_time
@@ -505,6 +534,13 @@ class Model3DConsumer:
         except requests.RequestException as e:
             logger.error(f"이미지 다운로드 실패: {image_url}, 오류: {e}")
             raise
+
+    def _download_images(self, image_urls: list) -> list:
+        """여러 이미지 URL에서 이미지 다운로드"""
+        downloaded = []
+        for image_url in image_urls:
+            downloaded.append(self._download_image(image_url))
+        return downloaded
     
     def _save_image(self, image_data: bytes, member_id: int) -> str:
         """
@@ -528,6 +564,19 @@ class Model3DConsumer:
             f.write(image_data)
         
         return filepath
+
+    def _save_images(self, image_data_list: list, member_id: int) -> list:
+        """다운로드한 여러 이미지를 로컬에 저장"""
+        saved_paths = []
+        base_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        for index, image_data in enumerate(image_data_list, start=1):
+            filename = f"member_{member_id}_{base_timestamp}_view{index}.jpg"
+            filepath = os.path.join(self.config['UPLOAD_FOLDER'], filename)
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, 'wb') as file:
+                file.write(image_data)
+            saved_paths.append(filepath)
+        return saved_paths
     
     def _crop_detected_object(self, image_path: str, member_id: int) -> Optional[str]:
         """
@@ -573,7 +622,7 @@ class Model3DConsumer:
             logger.error(f"[CROP] _crop_detected_object 오류: {e}", exc_info=True)
             return None
 
-    def _generate_3d_model(self, image_path: str, member_id: int) -> dict:
+    def _generate_3d_model(self, image_path: str, member_id: int, image_paths: Optional[list] = None) -> dict:
         """
         3D 모델 생성기를 사용하여 3D 모델 생성 (품질 검증 통합)
         
@@ -599,6 +648,19 @@ class Model3DConsumer:
         strict_mode = self.config.get('QUALITY_CHECK_STRICT_MODE', False)
         
         logger.info(f"[3D생성] 품질검증={quality_check_enabled}, 엄격모드={strict_mode}")
+
+        if image_paths is None:
+            image_paths = [image_path]
+
+        is_multi_view = len(image_paths) > 1
+
+        if is_multi_view:
+            logger.info(f"[3D생성] 멀티뷰 모드 ({len(image_paths)}장)")
+            return self.model_generator.generate_3d_model_multi_view(
+                image_paths=image_paths,
+                output_dir=self.config['MODEL3D_FOLDER'],
+                member_id=member_id
+            )
         
         if quality_check_enabled:
             # 품질 검증이 통합된 3D 모델 생성
@@ -675,6 +737,7 @@ class Model3DConsumer:
     
     
     def _save_metadata_to_vectordb(self, image_path: str, member_id: int, model3d_id: int,
+                                   image_paths: list = None,
                                    model3d_path: str = None, furniture_type: str = None, is_shared: bool = False) -> bool:
         """
         벡터DB에 메타데이터 저장 (이미지와 함께 학습용 메타정보 저장)
@@ -716,6 +779,7 @@ class Model3DConsumer:
                 "model3d_id": model3d_id,
                 "furniture_type": furniture_type if furniture_type else "unknown",
                 "image_path": image_path,
+                "image_paths": image_paths or [image_path],
                 "model3d_path": model3d_path,  # 생성된 3D 모델 경로
                 "is_shared": is_shared,
                 "member_id": member_id,
