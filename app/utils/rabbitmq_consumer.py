@@ -17,6 +17,7 @@ from typing import Dict, Any, Tuple, Optional
 
 from .model3d_generator import Model3DGenerator, Model3DServerUnavailableError
 from .model3d_params import Model3DParameterManager
+from .mq_monitor import get_mq_monitor
 from .s3_manager import S3Manager
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ class RabbitMQProducer:
         )
         self.exchange = config['RABBITMQ_EXCHANGE']
         self.routing_key = config['RABBITMQ_RESPONSE_ROUTING_KEY']
+        self.monitor = get_mq_monitor()
     
     def send_generation_response(self, member_id, model3d_id, original_image_url, model3d_url,
                                  status, message, thumbnail_url=None,
@@ -127,6 +129,12 @@ class RabbitMQProducer:
                     delivery_mode=2  # 메시지를 디스크에 저장 (persistent)
                 )
             )
+
+            self.monitor.record_event(
+                queue=self.routing_key,
+                direction='OUT',
+                details=response_message
+            )
             
             logger.info(f"[SUCCESS] Spring Boot로 메시지 전송 성공")
             logger.info(f"   memberId={member_id}, model3dId={model3d_id}, status={status}")
@@ -172,6 +180,7 @@ class Model3DConsumer:
         self.queue_name = config['RABBITMQ_QUEUE']
         self.connection = None
         self.channel = None
+        self.monitor = get_mq_monitor()
         
         # S3 사용 여부 (config에서 읽기, 기본값: False)
         self.use_s3 = config.get('USE_S3', False)
@@ -203,6 +212,13 @@ class Model3DConsumer:
             body: 메시지 본문 (bytes)
         """
         try:
+            raw_payload = body.decode('utf-8', errors='replace')
+            self.monitor.record_event(
+                queue=self.queue_name,
+                direction='IN',
+                details=raw_payload[:1500]
+            )
+
             # JSON 파싱
             message = json.loads(body.decode('utf-8'))
             
@@ -878,6 +894,11 @@ class Model3DConsumer:
         try:
             self.connection = pika.BlockingConnection(self.parameters)
             self.channel = self.connection.channel()
+            self.monitor.record_connection(
+                queue=self.queue_name,
+                connected=True,
+                component='model3d_consumer'
+            )
             
             # Queue 존재 확인 (없으면 생성)
             self.channel.queue_declare(queue=self.queue_name, durable=True)
@@ -906,11 +927,23 @@ class Model3DConsumer:
             self.stop_consuming()
             
         except pika.exceptions.AMQPConnectionError as e:
+            self.monitor.record_connection(
+                queue=self.queue_name,
+                connected=False,
+                component='model3d_consumer',
+                detail=str(e)
+            )
             logger.error(f"RabbitMQ 연결 실패: {e}")
             logger.error("RabbitMQ 서버가 실행 중인지 확인하세요.")
             raise
             
         except Exception as e:
+            self.monitor.record_connection(
+                queue=self.queue_name,
+                connected=False,
+                component='model3d_consumer',
+                detail=str(e)
+            )
             logger.error(f"Consumer 실행 중 오류 발생: {e}", exc_info=True)
             raise
     
@@ -926,6 +959,13 @@ class Model3DConsumer:
         if self.connection and self.connection.is_open:
             logger.info("연결 종료 중...")
             self.connection.close()
+
+        self.monitor.record_connection(
+            queue=self.queue_name,
+            connected=False,
+            component='model3d_consumer',
+            detail='stopped'
+        )
         
         logger.info("Consumer 종료 완료")
 

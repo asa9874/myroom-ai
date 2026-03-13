@@ -104,6 +104,9 @@ def setup_logging(app):
     app.logger.addHandler(console_handler)
     app.logger.addHandler(file_handler)
 
+    # Werkzeug 요청 로그(INFO) 콘솔 출력 억제
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
 
 def setup_api_logging(app):
     """
@@ -129,17 +132,17 @@ def setup_api_logging(app):
     )
     api_handler.setFormatter(api_formatter)
     
-    # 콘솔 핸들러도 추가
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(api_formatter)
-    
     api_logger.addHandler(api_handler)
-    api_logger.addHandler(console_handler)
+    api_logger.propagate = False
     
     @app.before_request
     def log_request():
         """요청 로깅"""
         if request.path.startswith('/api'):
+            # GUI 폴링 엔드포인트는 콘솔/파일 과도한 로그 방지를 위해 제외
+            if request.path == '/api/mq-monitor/overview':
+                return
+
             # 요청 정보 수집
             request.start_time = datetime.now()
             
@@ -169,6 +172,10 @@ def setup_api_logging(app):
     def log_response(response):
         """응답 로깅"""
         if request.path.startswith('/api'):
+            # GUI 폴링 엔드포인트는 콘솔/파일 과도한 로그 방지를 위해 제외
+            if request.path == '/api/mq-monitor/overview':
+                return response
+
             # 응답 시간 계산
             duration = None
             if hasattr(request, 'start_time'):
@@ -206,12 +213,14 @@ def register_routes(api):
     from app.routes.recommendation import init_recommendation_system
     from app.routes.image_quality import ns as image_quality_ns
     from app.routes.model3d_params import ns as model3d_params_ns
+    from app.routes.mq_monitor import ns as mq_monitor_ns
     
     # 네임스페이스 추가
     api.add_namespace(health_ns, path='/health')
     api.add_namespace(recommendation_ns)
     api.add_namespace(image_quality_ns, path='/api/image-quality')
     api.add_namespace(model3d_params_ns, path='/model3d-params')
+    api.add_namespace(mq_monitor_ns, path='/mq-monitor')
     
     # 추천 시스템 초기화
     try:

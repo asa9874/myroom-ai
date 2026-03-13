@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 from .recommendation_producer import RecommendationProducer
+from .mq_monitor import get_mq_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,11 @@ def process_recommendation_message(ch, method, properties, body):
     try:
         # 1. 메시지 파싱
         message = json.loads(body)
+        from flask import current_app
+        monitor = get_mq_monitor()
+        queue_name = current_app.config.get('RECOMMAND_REQUEST_QUEUE', 'recommand.request.queue')
+        monitor.record_event(queue=queue_name, direction='IN', details=message)
+
         member_id = message.get('memberId')
         image_url = message.get('imageUrl')
         category = message.get('category', 'chair')

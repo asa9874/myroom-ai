@@ -22,6 +22,7 @@ import time
 from typing import Callable
 from threading import Thread
 from flask import Flask
+from .mq_monitor import get_mq_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class MetadataUpdateConsumer:
         self.routing_key = config['METADATA_UPDATE_ROUTING_KEY']
         self.connection = None
         self.channel = None
+        self.monitor = get_mq_monitor()
     
     def connect(self):
         """RabbitMQ 연결 및 큐 설정"""
@@ -87,10 +89,22 @@ class MetadataUpdateConsumer:
             
             # QoS 설정 (한 번에 1개의 메시지만 처리)
             self.channel.basic_qos(prefetch_count=1)
+
+            self.monitor.record_connection(
+                queue=self.queue_name,
+                connected=True,
+                component='metadata_update_consumer'
+            )
             
             logger.info(f"[SUCCESS] RabbitMQ 연결 성공 (메타데이터 업데이트 큐: {self.queue_name})")
             
         except Exception as e:
+            self.monitor.record_connection(
+                queue=self.queue_name,
+                connected=False,
+                component='metadata_update_consumer',
+                detail=str(e)
+            )
             logger.error(f"[FAILED] RabbitMQ 연결 실패: {str(e)}", exc_info=True)
             raise
     
@@ -118,6 +132,12 @@ class MetadataUpdateConsumer:
         try:
             if self.connection and not self.connection.is_closed:
                 self.connection.close()
+                self.monitor.record_connection(
+                    queue=self.queue_name,
+                    connected=False,
+                    component='metadata_update_consumer',
+                    detail='closed'
+                )
                 logger.info("[SUCCESS] RabbitMQ 연결 종료 (메타데이터 업데이트)")
         except Exception as e:
             logger.error(f"연결 종료 중 오류: {str(e)}")
@@ -148,8 +168,13 @@ def process_metadata_update_message(ch, method, properties, body):
     start_time = time.time()
     
     try:
+        from flask import current_app
+        monitor = get_mq_monitor()
+        queue_name = current_app.config.get('METADATA_UPDATE_QUEUE', 'model3d.metadata.update.queue')
+
         # 1. 메시지 파싱
         message = json.loads(body)
+        monitor.record_event(queue=queue_name, direction='IN', details=message)
         model3d_id = message.get('model3d_id')
         member_id = message.get('member_id')
         name = message.get('name')

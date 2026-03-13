@@ -9,6 +9,7 @@ import json
 import logging
 import time
 from typing import Dict, Any
+from .mq_monitor import get_mq_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class RecommendationProducer:
         )
         self.exchange = config['RECOMMAND_EXCHANGE']
         self.routing_key = config['RECOMMAND_RESPONSE_ROUTING_KEY']
+        self.monitor = get_mq_monitor()
     
     def send_recommendation_response(self, response_message: Dict[str, Any]) -> bool:
         """
@@ -86,6 +88,12 @@ class RecommendationProducer:
                     content_type='application/json',
                     delivery_mode=2  # 메시지 지속성
                 )
+            )
+
+            self.monitor.record_event(
+                queue=self.routing_key,
+                direction='OUT',
+                details=response_message
             )
             
             member_id = response_message.get('memberId')

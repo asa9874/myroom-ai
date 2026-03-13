@@ -11,6 +11,7 @@ import time
 from typing import Callable
 from threading import Thread
 from flask import Flask, current_app
+from .mq_monitor import get_mq_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class RecommendationConsumer:
         self.exchange = config['RECOMMAND_EXCHANGE']
         self.connection = None
         self.channel = None
+        self.monitor = get_mq_monitor()
     
     def connect(self):
         """RabbitMQ 연결 및 큐 설정"""
@@ -72,10 +74,22 @@ class RecommendationConsumer:
             
             # QoS 설정 (한 번에 1개의 메시지만 처리)
             self.channel.basic_qos(prefetch_count=1)
+
+            self.monitor.record_connection(
+                queue=self.request_queue,
+                connected=True,
+                component='recommendation_consumer'
+            )
             
             logger.info(f"[SUCCESS] RabbitMQ 연결 성공 (큐: {self.request_queue})")
             
         except Exception as e:
+            self.monitor.record_connection(
+                queue=self.request_queue,
+                connected=False,
+                component='recommendation_consumer',
+                detail=str(e)
+            )
             logger.error(f"[FAILED] RabbitMQ 연결 실패: {str(e)}", exc_info=True)
             raise
     
@@ -103,6 +117,12 @@ class RecommendationConsumer:
         try:
             if self.connection and not self.connection.is_closed:
                 self.connection.close()
+                self.monitor.record_connection(
+                    queue=self.request_queue,
+                    connected=False,
+                    component='recommendation_consumer',
+                    detail='closed'
+                )
                 logger.info("[SUCCESS] RabbitMQ 연결 종료")
         except Exception as e:
             logger.error(f"연결 종료 중 오류: {str(e)}")
