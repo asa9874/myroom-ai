@@ -16,7 +16,7 @@ from threading import Thread
 from typing import Dict, Any, Tuple, Optional
 
 from .model3d_generator import Model3DGenerator, Model3DServerUnavailableError
-from .model3d_params import Model3DParameterManager
+from .model3d_params import Model3DParameterManager, RuntimeModel3DParameterStore
 from .mq_monitor import get_mq_monitor
 from .s3_manager import S3Manager
 
@@ -192,6 +192,7 @@ class Model3DConsumer:
         
         # 3D 모델 생성기 인스턴스 생성
         self.parameter_manager = Model3DParameterManager()
+        self.runtime_store = RuntimeModel3DParameterStore(self.parameter_manager)
         self.model_generator = Model3DGenerator(parameter_manager=self.parameter_manager)
         
         # S3 Manager 인스턴스 생성 (S3 사용 시에만)
@@ -313,7 +314,8 @@ class Model3DConsumer:
             # 3. 입력 이미지 모드 결정
             #    MODEL3D_USE_DETECTED_OBJECT=false(기본): 원본 이미지 사용
             #    MODEL3D_USE_DETECTED_OBJECT=true       : YOLO 감지 객체 크롭 이미지 사용
-            use_detected_object = self.config.get('MODEL3D_USE_DETECTED_OBJECT', False)
+            runtime_options = self._get_runtime_options()
+            use_detected_object = runtime_options.get('model3d_use_detected_object', True)
             input_image_path = image_path
             input_image_paths = list(image_paths)
 
@@ -660,8 +662,9 @@ class Model3DConsumer:
             ImageQualityError: 품질 검증 실패 시
         """
         # 설정에서 품질 검증 옵션 가져오기
-        quality_check_enabled = self.config.get('QUALITY_CHECK_ENABLED', True)
-        strict_mode = self.config.get('QUALITY_CHECK_STRICT_MODE', False)
+        runtime_options = self._get_runtime_options()
+        quality_check_enabled = runtime_options.get('quality_check_enabled', True)
+        strict_mode = runtime_options.get('quality_check_strict_mode', False)
         
         logger.info(f"[3D생성] 품질검증={quality_check_enabled}, 엄격모드={strict_mode}")
 
@@ -716,6 +719,19 @@ class Model3DConsumer:
                 output_dir=self.config['MODEL3D_FOLDER'],
                 member_id=member_id
             )
+
+    def _get_runtime_options(self) -> Dict[str, Any]:
+        try:
+            params = self.runtime_store.get_params()
+        except Exception:
+            params = self.parameter_manager.load()
+
+        options = params.get('runtime_options', {}) if isinstance(params, dict) else {}
+        return {
+            'model3d_use_detected_object': bool(options.get('model3d_use_detected_object', True)),
+            'quality_check_enabled': bool(options.get('quality_check_enabled', True)),
+            'quality_check_strict_mode': bool(options.get('quality_check_strict_mode', False)),
+        }
     
     def _upload_model_to_s3(self, model_3d_path: str, member_id: int, model3d_id: int) -> Tuple[bool, str]:
         """

@@ -1,7 +1,7 @@
 import json
 import tkinter as tk
 from tkinter import messagebox
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import requests
 import customtkinter as ctk
@@ -75,13 +75,20 @@ class Model3DParametersPanel(BaseSettingsPanel):
         },
     }
 
+    BOOL_FIELDS = {
+        "runtime_options.model3d_use_detected_object",
+        "runtime_options.quality_check_enabled",
+        "runtime_options.quality_check_strict_mode",
+    }
+
     def __init__(self, parent):
         super().__init__(parent)
         self.manager = Model3DParameterManager()
         self.runtime_api_base = "http://127.0.0.1:5000/api/model3d-params"
         self.mq_api_base = "http://127.0.0.1:5000/api/mq-monitor"
 
-        self.entries: Dict[str, ctk.CTkEntry] = {}
+        self.entries: Dict[str, Any] = {}
+        self.bool_vars: Dict[str, tk.BooleanVar] = {}
         self.help_labels: Dict[str, ctk.CTkLabel] = {}
         self.content_frame = None
 
@@ -174,11 +181,11 @@ class Model3DParametersPanel(BaseSettingsPanel):
         sections = [
             ("API", [("api.base_url", "API Base URL")]),
             (
-                "Quality Thresholds",
+                "Runtime Options",
                 [
-                    ("quality_thresholds.minimum", "Minimum"),
-                    ("quality_thresholds.standard", "Standard"),
-                    ("quality_thresholds.premium", "Premium"),
+                    ("runtime_options.model3d_use_detected_object", "Use Detected Object (YOLO Crop)"),
+                    ("runtime_options.quality_check_enabled", "Quality Check Enabled"),
+                    ("runtime_options.quality_check_strict_mode", "Quality Check Strict Mode"),
                 ],
             ),
             (
@@ -214,17 +221,36 @@ class Model3DParametersPanel(BaseSettingsPanel):
                     font=("맑은 고딕", 13, "bold"),
                 )
                 label_widget.grid(row=row, column=0, sticky="w", padx=10, pady=3)
-                entry = ctk.CTkEntry(
-                    parent_widget,
-                    width=380,
-                    height=34,
-                    fg_color=self.BG_INPUT,
-                    border_color=self.ACCENT,
-                    text_color=self.TEXT_PRIMARY,
-                    font=("맑은 고딕", 12),
-                )
-                entry.grid(row=row, column=1, sticky="we", padx=10, pady=3)
-                self.entries[key] = entry
+
+                if key in self.BOOL_FIELDS:
+                    bool_var = tk.BooleanVar(value=False)
+                    switch = ctk.CTkSwitch(
+                        parent_widget,
+                        text="활성화",
+                        variable=bool_var,
+                        onvalue=True,
+                        offvalue=False,
+                        progress_color="#22c55e",
+                        button_color="#f5f7fa",
+                        button_hover_color="#e5e7eb",
+                        text_color=self.TEXT_PRIMARY,
+                        font=("맑은 고딕", 12, "bold"),
+                    )
+                    switch.grid(row=row, column=1, sticky="w", padx=10, pady=3)
+                    self.entries[key] = switch
+                    self.bool_vars[key] = bool_var
+                else:
+                    entry = ctk.CTkEntry(
+                        parent_widget,
+                        width=380,
+                        height=34,
+                        fg_color=self.BG_INPUT,
+                        border_color=self.ACCENT,
+                        text_color=self.TEXT_PRIMARY,
+                        font=("맑은 고딕", 12),
+                    )
+                    entry.grid(row=row, column=1, sticky="we", padx=10, pady=3)
+                    self.entries[key] = entry
 
                 description = self._get_field_description(key)
                 if description:
@@ -324,9 +350,13 @@ class Model3DParametersPanel(BaseSettingsPanel):
 
         for key, entry in self.entries.items():
             value = self._read_nested(params, key)
-            entry.delete(0, tk.END)
-            if value is not None:
-                entry.insert(0, str(value))
+
+            if key in self.bool_vars:
+                self.bool_vars[key].set(bool(value))
+            else:
+                entry.delete(0, tk.END)
+                if value is not None:
+                    entry.insert(0, str(value))
 
             help_label = self.help_labels.get(key)
             if help_label is not None:
@@ -335,7 +365,10 @@ class Model3DParametersPanel(BaseSettingsPanel):
     def save_data(self) -> None:
         updated = self.manager.load()
         for key, entry in self.entries.items():
-            self._write_nested(updated, key, self._convert_value(entry.get().strip()))
+            if key in self.bool_vars:
+                self._write_nested(updated, key, bool(self.bool_vars[key].get()))
+            else:
+                self._write_nested(updated, key, self._convert_value(entry.get().strip()))
         self._apply_to_runtime_api(updated)
 
     def _on_apply_clicked(self) -> None:

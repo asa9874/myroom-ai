@@ -35,5 +35,15 @@
       "output_format": "의미: 최종 결과물을 어떤 파일 형식으로 저장할지 정합니다. GLB: 텍스처와 메쉬 정보가 하나로 통합된 표준 형식으로, 대부분의 3D 툴과 게임 엔진에서 바로 사용 가능하여 가장 권장됩니다."
     }
   },
+  "runtime_options": {
+    "model3d_use_detected_object": true,
+    "quality_check_enabled": true,
+    "quality_check_strict_mode": false,
+    "_field_descriptions": {
+      "model3d_use_detected_object": "MODEL3D_USE_DETECTED_OBJECT: true면 YOLO 감지 객체 크롭 이미지를 우선 사용하고, false면 원본 이미지를 사용합니다.",
+      "quality_check_enabled": "QUALITY_CHECK_ENABLED: 이미지 품질 검증 단계 사용 여부입니다. false면 품질 검증을 건너뜁니다.",
+      "quality_check_strict_mode": "QUALITY_CHECK_STRICT_MODE: true면 엄격 기준(80점 이상), false면 일반 기준(50점 이상)으로 품질 통과를 판단합니다."
+    }
+  },
   "_description": "MyRoom AI 3D 모델 생성 파라미터 설정 파일"
 }

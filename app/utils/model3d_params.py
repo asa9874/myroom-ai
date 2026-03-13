@@ -29,6 +29,11 @@ DEFAULT_MODEL3D_PARAMS: Dict[str, Any] = {
         "mesh_simplify_ratio": 0.95,
         "texture_size": 1024,
         "output_format": "glb"
+    },
+    "runtime_options": {
+        "model3d_use_detected_object": True,
+        "quality_check_enabled": True,
+        "quality_check_strict_mode": False
     }
 }
 
@@ -102,6 +107,9 @@ class Model3DParameterManager:
     def get_generation_defaults(self) -> Dict[str, Any]:
         return self.load().get("generation_defaults", _deep_copy(DEFAULT_MODEL3D_PARAMS["generation_defaults"]))
 
+    def get_runtime_options(self) -> Dict[str, Any]:
+        return self.load().get("runtime_options", _deep_copy(DEFAULT_MODEL3D_PARAMS["runtime_options"]))
+
     @staticmethod
     def sanitize(params: Dict[str, Any]) -> None:
         thresholds = params.setdefault("quality_thresholds", {})
@@ -131,6 +139,17 @@ class Model3DParameterManager:
         defaults["slat_sampling_steps"] = max(1, defaults["slat_sampling_steps"])
         defaults["mesh_simplify_ratio"] = max(0.1, min(defaults["mesh_simplify_ratio"], 1.0))
         defaults["texture_size"] = max(64, defaults["texture_size"])
+
+        runtime_options = params.setdefault("runtime_options", {})
+        runtime_options["model3d_use_detected_object"] = bool(
+            runtime_options.get("model3d_use_detected_object", True)
+        )
+        runtime_options["quality_check_enabled"] = bool(
+            runtime_options.get("quality_check_enabled", True)
+        )
+        runtime_options["quality_check_strict_mode"] = bool(
+            runtime_options.get("quality_check_strict_mode", False)
+        )
 
         api = params.setdefault("api", {})
         api_base_url = str(api.get("base_url", "")).strip()
