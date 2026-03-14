@@ -251,7 +251,7 @@ class MetadataList(Resource):
             total_pages = (filtered_count + limit - 1) // limit
             current_page = (skip // limit) + 1 if filtered_count > 0 else 0
 
-            logger.info(f"Metadata list retrieved: total={total_count}, filtered={filtered_count}, returned={len(metadata_list)}")
+            logger.debug(f"Metadata list retrieved: total={total_count}, filtered={filtered_count}, returned={len(metadata_list)}")
 
             return {
                 "status": "success",
@@ -532,7 +532,7 @@ class VectorDBStatus(Resource):
                 ftype = meta.get("furniture_type", "unknown")
                 furniture_stats[ftype] = furniture_stats.get(ftype, 0) + 1
 
-            logger.info(f"VectorDB status: items={vectorizer.index.ntotal}, size={index_size + metadata_size} bytes")
+            logger.debug(f"VectorDB status: items={vectorizer.index.ntotal}, size={index_size + metadata_size} bytes")
 
             return {
                 "status": "success",

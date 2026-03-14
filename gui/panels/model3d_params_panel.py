@@ -15,6 +15,7 @@ from PIL import Image
 from app.utils.model3d_params import Model3DParameterManager
 from app.utils.model3d_generator import Model3DGenerator
 from .base_panel import BaseSettingsPanel
+from .vectordb_manager_window import VectorDBManagerWindow
 from gui.widgets import launch_external_glb_viewer
 
 
@@ -145,6 +146,7 @@ class Model3DParametersPanel(BaseSettingsPanel):
         self._last_event_signature = None
         self._last_generation_signature = None
         self._generation_field_descriptions = self._load_generation_field_descriptions()
+        self._vectordb_manager_window = None
 
         self.configure(fg_color=self.BG_PRIMARY)
         self._build_ui()
@@ -499,6 +501,17 @@ class Model3DParametersPanel(BaseSettingsPanel):
             text_color=self.TEXT_PRIMARY,
             font=("맑은 고딕", 11, "bold"),
         ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            button_frame,
+            text="VectorDB 관리",
+            command=self._open_vectordb_manager,
+            width=130,
+            height=34,
+            fg_color="#0f766e",
+            hover_color="#115e59",
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 11, "bold"),
+        ).pack(side="left", padx=5)
 
         parent_widget.columnconfigure(0, weight=1)
 
@@ -565,6 +578,19 @@ class Model3DParametersPanel(BaseSettingsPanel):
             name="GuiLocal3DGeneration",
         )
         worker.start()
+
+    def _open_vectordb_manager(self) -> None:
+        try:
+            if self._vectordb_manager_window is not None:
+                window = getattr(self._vectordb_manager_window, "window", None)
+                if window is not None and window.winfo_exists():
+                    window.lift()
+                    window.focus_force()
+                    return
+
+            self._vectordb_manager_window = VectorDBManagerWindow(self)
+        except Exception as exc:
+            messagebox.showerror("VectorDB 관리", f"관리창 열기 실패\n{exc}")
 
     def _collect_generation_settings_from_form(self) -> Dict[str, Any]:
         settings: Dict[str, Any] = {}
