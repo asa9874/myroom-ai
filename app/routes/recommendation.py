@@ -991,7 +991,9 @@ class AnalyzeRoom(Resource):
             file.save(filepath)
 
             try:
-                target_category = request.args.get("category", "chair")
+                requested_category = request.args.get("category", default=None, type=str)
+                target_category = (requested_category or "").strip() or None
+                analysis_target_category = target_category or "furniture"
                 top_k = request.args.get("top_k", 5, type=int)
 
                 # 벡터라이저 데이터베이스 확인
@@ -1007,7 +1009,7 @@ class AnalyzeRoom(Resource):
                 # 이미지 분석 실행
                 image_analyzer = get_image_analyzer()
                 analysis_result = image_analyzer.analyze_image_comprehensive(
-                    filepath, target_category
+                    filepath, analysis_target_category
                 )
 
                 # 추천 검색 실행
@@ -1029,7 +1031,7 @@ class AnalyzeRoom(Resource):
                     "member_id": member_id,  # Java: memberId
                     "room_analysis": room_context,
                     "recommendation": {
-                        "target_category": target_category,
+                        "target_category": target_category or "미지정",
                         "reasoning": reasoning,
                         "search_query": search_query,
                         "results": recommendations,

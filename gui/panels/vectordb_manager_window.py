@@ -3,7 +3,8 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
+import threading
 
 import customtkinter as ctk
 import requests
@@ -45,6 +46,8 @@ class VectorDBManagerWindow:
 
         self._metadata_items: List[Dict[str, Any]] = []
         self._recommendation_items: List[Dict[str, Any]] = []
+        self._local_test_recommendations: List[Dict[str, Any]] = []
+        self._local_test_reco_seq = 0
         self._status_refresh_tick = 0
 
         self._build_ui()
@@ -213,13 +216,51 @@ class VectorDBManagerWindow:
             text_color=self.TEXT_PRIMARY,
             font=("맑은 고딕", 15, "bold"),
         ).grid(row=0, column=0, sticky="w")
+
+        self.reco_category_var = tk.StringVar(value="미지정")
+        self.reco_category_menu = ctk.CTkOptionMenu(
+            bottom_header,
+            values=["미지정", "chair", "table", "sofa", "bed", "cabinet", "desk", "other"],
+            variable=self.reco_category_var,
+            width=100,
+            fg_color=self.ACCENT,
+            button_color=self.ACCENT,
+            button_hover_color=self.ACCENT_HOVER,
+        )
+        self.reco_category_menu.grid(row=0, column=1, padx=(8, 6), sticky="e")
+
+        self.reco_topk_var = tk.StringVar(value="5")
+        self.reco_topk_entry = ctk.CTkEntry(
+            bottom_header,
+            width=46,
+            height=28,
+            textvariable=self.reco_topk_var,
+            fg_color="#1a1f27",
+            border_color=self.ACCENT,
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 10),
+        )
+        self.reco_topk_entry.grid(row=0, column=2, padx=(0, 6), sticky="e")
+
+        ctk.CTkButton(
+            bottom_header,
+            text="추천 테스트",
+            command=self._on_run_recommendation_test,
+            width=100,
+            height=28,
+            fg_color="#2563eb",
+            hover_color="#1d4ed8",
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 10, "bold"),
+        ).grid(row=0, column=3, padx=(0, 8), sticky="e")
+
         self.reco_count_label = ctk.CTkLabel(
             bottom_header,
             text="0건",
             text_color=self.TEXT_MUTED,
             font=("맑은 고딕", 10),
         )
-        self.reco_count_label.grid(row=0, column=1, sticky="e")
+        self.reco_count_label.grid(row=0, column=4, sticky="e")
 
         self.reco_cards_frame = ctk.CTkScrollableFrame(
             self.bottom_container,
@@ -498,7 +539,8 @@ class VectorDBManagerWindow:
             response.raise_for_status()
             payload = response.json()
             events = payload.get("events", []) if payload.get("success") else []
-            records = self._build_recommendation_records(events)
+            mq_records = self._build_recommendation_records(events)
+            records = self._merge_recommendation_records(mq_records, list(self._local_test_recommendations))
             self._recommendation_items = records
 
             signature = tuple(
@@ -520,6 +562,121 @@ class VectorDBManagerWindow:
         except Exception as exc:
             if not silent:
                 self._log_status(f"추천 기록 조회 실패: {exc}")
+
+    @staticmethod
+    def _merge_recommendation_records(mq_records: List[Dict[str, Any]], local_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        merged = list(local_records) + list(mq_records)
+        merged.sort(key=lambda x: str(x.get("timestamp", "")), reverse=True)
+        return merged[:120]
+
+    def _on_run_recommendation_test(self) -> None:
+        image_path = filedialog.askopenfilename(
+            title="추천 테스트 이미지 선택",
+            filetypes=[
+                ("Image Files", "*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.avif"),
+                ("All Files", "*.*"),
+            ],
+        )
+        if not image_path:
+            return
+
+        try:
+            top_k = int(str(self.reco_topk_var.get()).strip() or "5")
+            top_k = max(1, min(top_k, 20))
+        except Exception:
+            messagebox.showerror("입력 오류", "top_k는 1~20 숫자여야 합니다.")
+            return
+
+        selected_category = str(self.reco_category_var.get() or "미지정").strip() or "미지정"
+        category = None if selected_category == "미지정" else selected_category
+
+        self._local_test_reco_seq += 1
+        record_id = f"test-reco-{self._local_test_reco_seq}"
+        created_at = datetime.now().isoformat()
+        placeholder = {
+            "id": record_id,
+            "member_id": "GUI_TEST",
+            "status": "processing",
+            "timestamp": created_at,
+            "room_image_url": image_path,
+            "category": selected_category,
+            "top_k": top_k,
+            "result_count": 0,
+            "room_analysis": {},
+            "recommendation": {},
+            "raw": {},
+            "source": "gui-local-test",
+        }
+        self._local_test_recommendations.insert(0, placeholder)
+        self._render_recommendation_cards()
+
+        worker = threading.Thread(
+            target=self._run_recommendation_test_worker,
+            args=(record_id, image_path, category, top_k),
+            daemon=True,
+            name="VectorDBRecoTestWorker",
+        )
+        worker.start()
+
+    def _run_recommendation_test_worker(self, record_id: str, image_path: str, category: Optional[str], top_k: int) -> None:
+        try:
+            with open(image_path, "rb") as fp:
+                files = {"file": (os.path.basename(image_path), fp, "application/octet-stream")}
+                params = {
+                    "top_k": top_k,
+                    "member_id": 99999,
+                }
+                if category:
+                    params["category"] = category
+                response = requests.post(f"{self.recommendation_api}/analyze", files=files, params=params, timeout=120)
+                response.raise_for_status()
+                payload = response.json()
+
+            status = str(payload.get("status", "unknown"))
+            recommendation = payload.get("recommendation", {}) or {}
+            room_analysis = payload.get("room_analysis", {}) or {}
+
+            normalized_recommendation = {
+                "targetCategory": recommendation.get("target_category", category),
+                "reasoning": recommendation.get("reasoning", ""),
+                "searchQuery": recommendation.get("search_query", ""),
+                "results": recommendation.get("results", []) or [],
+                "resultCount": recommendation.get("result_count", 0),
+            }
+
+            self._update_local_test_record(
+                record_id,
+                status=status,
+                category=normalized_recommendation.get("targetCategory") or (category or "미지정"),
+                result_count=normalized_recommendation.get("resultCount", 0),
+                room_analysis=room_analysis,
+                recommendation=normalized_recommendation,
+                raw=payload,
+                timestamp=datetime.now().isoformat(),
+            )
+
+            if self.window.winfo_exists():
+                self.window.after(0, self._render_recommendation_cards)
+                self.window.after(0, lambda: self._log_status(f"추천 테스트 완료: {record_id}"))
+
+        except Exception as exc:
+            self._update_local_test_record(
+                record_id,
+                status="failed",
+                recommendation={"targetCategory": category or "미지정", "reasoning": "", "searchQuery": "", "results": [], "resultCount": 0},
+                raw={"error": str(exc)},
+                result_count=0,
+                timestamp=datetime.now().isoformat(),
+            )
+            if self.window.winfo_exists():
+                self.window.after(0, self._render_recommendation_cards)
+                self.window.after(0, lambda: messagebox.showerror("추천 테스트 실패", str(exc)))
+
+    def _update_local_test_record(self, record_id: str, **patch: Any) -> None:
+        for item in self._local_test_recommendations:
+            if item.get("id") == record_id:
+                item.update(patch)
+                return
 
     def _build_recommendation_records(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         request_by_member: Dict[str, List[Dict[str, Any]]] = {}
@@ -578,6 +735,7 @@ class VectorDBManagerWindow:
                         "room_analysis": details.get("roomAnalysis", {}),
                         "recommendation": recommendation,
                         "raw": details,
+                        "source": "mq",
                     }
                 )
 
@@ -636,6 +794,16 @@ class VectorDBManagerWindow:
             font=("맑은 고딕", 9),
             anchor="w",
         ).grid(row=3, column=0, sticky="w", padx=8, pady=(0, 8))
+
+        if rec.get("source") == "gui-local-test":
+            ctk.CTkLabel(
+                card,
+                text="TEST",
+                text_color="#f8fafc",
+                fg_color="#2563eb",
+                corner_radius=6,
+                font=("맑은 고딕", 9, "bold"),
+            ).place(relx=0.93, rely=0.08, anchor="ne")
 
         def on_click(_evt=None):
             self._show_recommendation_detail(rec)
