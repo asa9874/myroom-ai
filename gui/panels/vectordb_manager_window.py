@@ -184,8 +184,8 @@ class VectorDBManagerWindow:
 
         ctk.CTkButton(
             button_wrap,
-            text="init.json 템플릿 생성",
-            command=self._create_init_json_template,
+            text="서버와 DB와 동기화",
+            command=self._open_server_db_sync_dialog,
             fg_color="#0f766e",
             hover_color="#115e59",
             height=34,
@@ -487,51 +487,312 @@ class VectorDBManagerWindow:
             self._log_status(f"초기화 실패: {exc}")
             messagebox.showerror("초기화 실패", str(exc))
 
-    def _create_init_json_template(self) -> None:
-        template_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "init.json"))
-        payload = {
-            "description": "VectorDB 초기 학습용 템플릿 - 값을 채운 뒤 배치 학습 스크립트에서 사용",
-            "version": 1,
-            "items": [
-                {
-                    "model3d_id": 1001,
-                    "member_id": 1,
-                    "name": "샘플 소파",
-                    "description": "사용자가 작성할 설명",
-                    "furniture_type": "sofa",
-                    "is_shared": True,
-                    "image_url": "https://example.com/images/sofa_001.jpg",
-                    "extra": {
-                        "category": "livingroom",
-                        "tags": ["modern", "fabric"],
-                        "deleted": False
-                    }
-                },
-                {
-                    "model3d_id": 1002,
-                    "member_id": 2,
-                    "name": "샘플 의자",
-                    "description": "사용자가 작성할 설명",
-                    "furniture_type": "chair",
-                    "is_shared": True,
-                    "image_url": "https://example.com/images/chair_001.jpg",
-                    "extra": {
-                        "category": "dining",
-                        "tags": ["wood", "minimal"],
-                        "deleted": False
-                    }
-                }
-            ]
-        }
+    def _open_server_db_sync_dialog(self) -> None:
+        dialog = ctk.CTkToplevel(self.window)
+        dialog.title("서버와 DB와 동기화")
+        dialog.geometry("520x380")
+        dialog.configure(fg_color=self.BG_PRIMARY)
+        dialog.grab_set()
+        dialog.columnconfigure(1, weight=1)
 
+        ctk.CTkLabel(
+            dialog,
+            text="URL",
+            text_color=self.TEXT_SECONDARY,
+            font=("맑은 고딕", 11, "bold"),
+        ).grid(row=0, column=0, sticky="w", padx=12, pady=(14, 6))
+
+        url_var = tk.StringVar(value="url을 입력해주세욤")
+        url_entry = ctk.CTkEntry(
+            dialog,
+            textvariable=url_var,
+            fg_color=self.BG_SUB,
+            border_color=self.ACCENT,
+            text_color=self.TEXT_PRIMARY,
+            height=34,
+        )
+        url_entry.grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=(14, 6))
+
+        ctk.CTkLabel(
+            dialog,
+            text="아이디(이메일)",
+            text_color=self.TEXT_SECONDARY,
+            font=("맑은 고딕", 11, "bold"),
+        ).grid(row=1, column=0, sticky="w", padx=12, pady=6)
+
+        email_var = tk.StringVar(value="")
+        email_entry = ctk.CTkEntry(
+            dialog,
+            textvariable=email_var,
+            fg_color=self.BG_SUB,
+            border_color=self.ACCENT,
+            text_color=self.TEXT_PRIMARY,
+            height=34,
+        )
+        email_entry.grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=6)
+
+        ctk.CTkLabel(
+            dialog,
+            text="비밀번호",
+            text_color=self.TEXT_SECONDARY,
+            font=("맑은 고딕", 11, "bold"),
+        ).grid(row=2, column=0, sticky="w", padx=12, pady=6)
+
+        password_var = tk.StringVar(value="")
+        password_entry = ctk.CTkEntry(
+            dialog,
+            textvariable=password_var,
+            show="*",
+            fg_color=self.BG_SUB,
+            border_color=self.ACCENT,
+            text_color=self.TEXT_PRIMARY,
+            height=34,
+        )
+        password_entry.grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=6)
+
+        # 진행률 표시 영역
+        progress_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        progress_frame.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 0))
+        progress_frame.columnconfigure(0, weight=1)
+
+        progress_bar = ctk.CTkProgressBar(
+            progress_frame,
+            fg_color=self.BG_SUB,
+            progress_color="#0f766e",
+            height=12,
+        )
+        progress_bar.set(0)
+        progress_bar.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+
+        progress_label = ctk.CTkLabel(
+            progress_frame,
+            text="",
+            text_color=self.TEXT_SECONDARY,
+            font=("맑은 고딕", 10),
+            anchor="e",
+        )
+        progress_label.grid(row=1, column=0, sticky="e")
+
+        button_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        button_row.grid(row=4, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 10))
+        button_row.columnconfigure(0, weight=1)
+        button_row.columnconfigure(1, weight=1)
+
+        sync_button = ctk.CTkButton(
+            button_row,
+            text="동기화",
+            fg_color="#0f766e",
+            hover_color="#115e59",
+            text_color=self.TEXT_PRIMARY,
+            height=34,
+            command=lambda: self._start_server_db_sync(
+                dialog=dialog,
+                sync_button=sync_button,
+                url=str(url_var.get()).strip(),
+                email=str(email_var.get()).strip(),
+                password=str(password_var.get()),
+                progress_bar=progress_bar,
+                progress_label=progress_label,
+            ),
+        )
+        sync_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+
+        ctk.CTkButton(
+            button_row,
+            text="취소",
+            fg_color=self.ACCENT,
+            hover_color=self.ACCENT_HOVER,
+            text_color=self.TEXT_PRIMARY,
+            height=34,
+            command=dialog.destroy,
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        url_entry.focus_set()
+
+    def _start_server_db_sync(self, dialog, sync_button, url: str, email: str, password: str, progress_bar, progress_label) -> None:
+        if not url:
+            messagebox.showerror("입력 오류", "URL을 입력해주세요.")
+            return
+        if not email:
+            messagebox.showerror("입력 오류", "아이디(이메일)를 입력해주세요.")
+            return
+        if not password:
+            messagebox.showerror("입력 오류", "비밀번호를 입력해주세요.")
+            return
+
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = f"http://{url}"
+
+        sync_button.configure(state="disabled", text="동기화 중...")
+        self._log_status(f"서버 동기화 시작: {url}")
+
+        worker = threading.Thread(
+            target=self._run_server_db_sync_worker,
+            args=(url, email, password, dialog, progress_bar, progress_label),
+            daemon=True,
+            name="VectorDBSyncWorker",
+        )
+        worker.start()
+
+    def _run_server_db_sync_worker(self, base_url: str, email: str, password: str, dialog, progress_bar, progress_label) -> None:
         try:
-            with open(template_path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
-            self._log_status(f"init.json 템플릿 생성: {template_path}")
-            messagebox.showinfo("완료", f"init.json 템플릿 생성 완료\n{template_path}")
+            normalized_base = base_url.rstrip("/")
+            login_url = f"{normalized_base}/api/auth/login"
+            model3ds_url = f"{normalized_base}/api/model3ds"
+
+            login_resp = requests.post(
+                login_url,
+                headers={"accept": "application/json", "Content-Type": "application/json"},
+                json={"email": email, "password": password},
+                timeout=15,
+            )
+            login_resp.raise_for_status()
+
+            login_payload = login_resp.json() if login_resp.content else {}
+            token = login_payload.get("token")
+            if not token:
+                raise RuntimeError("로그인 응답에서 token을 찾지 못했습니다.")
+
+            self.window.after(0, lambda: self._log_status("로그인 성공, 모델 목록 조회 시작"))
+
+            model_resp = requests.get(
+                model3ds_url,
+                headers={"accept": "application/json", "Authorization": f"Bearer {token}"},
+                timeout=25,
+            )
+            model_resp.raise_for_status()
+
+            model_payload = model_resp.json() if model_resp.content else []
+            if isinstance(model_payload, dict):
+                model_items = model_payload.get("content") or model_payload.get("data") or model_payload.get("items") or []
+            elif isinstance(model_payload, list):
+                model_items = model_payload
+            else:
+                model_items = []
+
+            success_items = []
+            for item in model_items:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("status", "")).upper() != "SUCCESS":
+                    continue
+                thumbnail_url = item.get("thumbnailUrl")
+                if not thumbnail_url:
+                    continue
+                success_items.append(item)
+
+            self.window.after(0, lambda: self._log_status(f"학습 대상 SUCCESS 데이터: {len(success_items)}건"))
+
+            reset_resp = requests.post(f"{self.recommendation_api}/vectordb/reset", timeout=20)
+            reset_resp.raise_for_status()
+            self.window.after(0, lambda: self._log_status("VectorDB 초기화 완료"))
+
+            grouped: Dict[str, List[Dict[str, Any]]] = {}
+            for item in success_items:
+                furniture_type = str(item.get("furniture_type") or "others").strip().lower() or "others"
+                grouped.setdefault(furniture_type, []).append(item)
+
+            total_trained = 0
+            total_failed = 0
+            total_items = len(success_items)
+            processed_items = 0
+
+            if total_items > 0:
+                self.window.after(
+                    0, lambda t=total_items: progress_label.configure(text=f"0 / {t}  (0%)")
+                )
+            else:
+                self.window.after(0, lambda: progress_label.configure(text="학습 항목 없음"))
+
+            def _update_progress(done: int, total: int) -> None:
+                pct = done / total if total > 0 else 0.0
+                progress_bar.set(pct)
+                progress_label.configure(text=f"{done} / {total}  ({int(pct * 100)}%)")
+
+            for furniture_type, entries in grouped.items():
+                upload_files = []
+                upload_model_ids = []
+                upload_is_shared = []
+                for entry in entries:
+                    thumb_url = str(entry.get("thumbnailUrl") or "").strip()
+                    if not thumb_url:
+                        total_failed += 1
+                        processed_items += 1
+                        self.window.after(
+                            0, lambda d=processed_items, t=total_items: _update_progress(d, t)
+                        )
+                        continue
+
+                    try:
+                        image_resp = requests.get(thumb_url, timeout=15)
+                        image_resp.raise_for_status()
+                        model_id = entry.get("id", "unknown")
+                        ext = os.path.splitext(thumb_url.split("?")[0])[1] or ".jpg"
+                        file_name = f"model3d_{model_id}{ext}"
+                        raw_shared = entry.get("is_shared")
+                        if raw_shared is None:
+                            raw_shared = entry.get("isShared", False)
+                        if isinstance(raw_shared, str):
+                            is_shared_value = raw_shared.strip().lower() in {"true", "1", "yes", "y", "t"}
+                        elif isinstance(raw_shared, (int, float)):
+                            is_shared_value = raw_shared != 0
+                        else:
+                            is_shared_value = bool(raw_shared)
+                        upload_files.append(("files", (file_name, image_resp.content, "application/octet-stream")))
+                        upload_model_ids.append(model_id)
+                        upload_is_shared.append(is_shared_value)
+                    except Exception:
+                        total_failed += 1
+                    processed_items += 1
+                    self.window.after(
+                        0, lambda d=processed_items, t=total_items: _update_progress(d, t)
+                    )
+
+                if not upload_files:
+                    continue
+
+                train_resp = requests.post(
+                    f"{self.recommendation_api}/train-images",
+                    params={"save_db": "true"},
+                    data={
+                        "furniture_type": furniture_type,
+                        "model3d_ids": json.dumps(upload_model_ids),
+                        "is_shared_list": json.dumps(upload_is_shared),
+                    },
+                    files=upload_files,
+                    timeout=240,
+                )
+                train_resp.raise_for_status()
+
+                train_payload = train_resp.json() if train_resp.content else {}
+                trained_now = int((train_payload.get("training_result") or {}).get("added_images", len(upload_files)))
+                failed_now = int((train_payload.get("training_result") or {}).get("failed_images", 0))
+                total_trained += trained_now
+                total_failed += failed_now
+
+                self.window.after(
+                    0,
+                    lambda ft=furniture_type, tn=trained_now, fn=failed_now: self._log_status(
+                        f"[{ft}] 학습 완료: 추가 {tn}건 / 실패 {fn}건"
+                    ),
+                )
+
+            self.window.after(0, lambda: self._refresh_metadata(silent=True))
+            self.window.after(0, lambda: self._refresh_status(silent=True))
+            self.window.after(0, self._render_metadata_cards)
+            self.window.after(0, lambda: self._log_status(f"동기화 완료: 학습 {total_trained}건 / 실패 {total_failed}건"))
+            self.window.after(0, dialog.destroy)
+            self.window.after(
+                0,
+                lambda: messagebox.showinfo(
+                    "동기화 완료",
+                    f"서버-DB 동기화가 완료되었습니다.\n학습: {total_trained}건\n실패: {total_failed}건",
+                ),
+            )
+
         except Exception as exc:
-            self._log_status(f"init.json 생성 실패: {exc}")
-            messagebox.showerror("생성 실패", str(exc))
+            self.window.after(0, lambda e=exc: self._log_status(f"동기화 실패: {e}"))
+            self.window.after(0, lambda e=exc: messagebox.showerror("동기화 실패", str(e)))
 
     def _refresh_recommendations(self, silent: bool = False) -> None:
         try:

@@ -35,6 +35,16 @@ class FurnitureSearchEngine:
         self.vectorizer = vectorizer
         logger.info("FurnitureSearchEngine initialized")
 
+    @staticmethod
+    def _is_shared_visible(meta: Dict) -> bool:
+        """is_shared가 없는 레거시 데이터도 검색 결과에 포함합니다."""
+        value = meta.get("is_shared")
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return value.strip().lower() in {"true", "1", "yes", "y"}
+        return bool(value)
+
     def search_by_text(
         self, query: str, top_k: int = 5, furniture_type: Optional[str] = None
     ) -> List[Dict]:
@@ -71,12 +81,16 @@ class FurnitureSearchEngine:
 
                 meta = self.vectorizer.metadata[idx]
 
+                # 삭제된 항목 제외
+                if meta.get("_deleted", False):
+                    continue
+
                 # 필터링 (furniture_type 지정 시)
                 if furniture_type and meta.get("furniture_type") != furniture_type:
                     continue
                 
-                # FIX: is_shared=True인 항목만 반환
-                if not meta.get("is_shared", False):
+                # is_shared=False 항목만 제외하고, 누락(None)은 허용
+                if not self._is_shared_visible(meta):
                     continue
 
                 results.append(
@@ -154,8 +168,8 @@ class FurnitureSearchEngine:
                 if furniture_type and meta.get("furniture_type") != furniture_type:
                     continue
                 
-                # FIX: is_shared=True인 항목만 반환
-                if not meta.get("is_shared", False):
+                # is_shared=False 항목만 제외하고, 누락(None)은 허용
+                if not self._is_shared_visible(meta):
                     continue
 
                 results.append(

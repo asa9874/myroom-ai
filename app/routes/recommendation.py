@@ -13,6 +13,7 @@
 - POST /api/recommendation/analyze - 이미지 분석 및 AI 추천
 """
 
+import json
 import os
 import logging
 from flask import request, jsonify, current_app
@@ -456,15 +457,26 @@ class VectorDBReset(Resource):
                         "message": f"메타데이터 파일 삭제 실패: {str(e)}",
                     }, 500
 
-            # 새로운 빈 VectorDB 생성
+            # 새로운 빈 VectorDB 생성 및 전역 상태 갱신
             try:
                 vectorizer = CLIPVectorizer()
-                
+
                 # 빈 상태로 저장
-                vectorizer.save_database(db_path, db_meta_path)
-                
+                saved = vectorizer.save_database(db_path, db_meta_path)
+                if not saved:
+                    return {
+                        "status": "error",
+                        "message": "새로운 VectorDB 생성 실패: 저장에 실패했습니다.",
+                    }, 500
+
+                # 전역 인스턴스를 새 빈 DB로 교체
+                global _vectorizer, _search_engine, _db_loaded
+                _vectorizer = vectorizer
+                _search_engine = FurnitureSearchEngine(_vectorizer)
+                _db_loaded = True
+
                 logger.info(f"New empty VectorDB created at {db_path}")
-                
+
                 return {
                     "status": "success",
                     "message": "VectorDB 완전 초기화 완료",
@@ -1151,6 +1163,18 @@ class InitDatabase(Resource):
 class TrainImages(Resource):
     """기존 VectorDB에 이미지 추가/학습"""
 
+    @staticmethod
+    def _parse_bool(value, default: bool = False) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            return value.strip().lower() in {"true", "1", "yes", "y", "t"}
+        return bool(value)
+
     def post(self):
         """
         기존 벡터 데이터베이스에 새로운 이미지 추가 및 재학습
@@ -1171,13 +1195,6 @@ class TrainImages(Resource):
         try:
             vectorizer = get_vectorizer()
 
-            # 데이터베이스 존재 확인
-            if vectorizer.index.ntotal == 0:
-                return {
-                    "status": "error",
-                    "message": "VectorDB가 초기화되지 않았습니다. 먼저 /init-database를 호출하세요.",
-                }, 400
-
             initial_count = vectorizer.index.ntotal
             added_count = 0
             failed_count = 0
@@ -1186,6 +1203,28 @@ class TrainImages(Resource):
             if "files" in request.files:
                 files = request.files.getlist("files")
                 furniture_type = request.form.get("furniture_type")
+
+                raw_model3d_ids = request.form.get("model3d_ids")
+                raw_is_shared = request.form.get("is_shared_list")
+
+                model3d_ids = []
+                is_shared_list = []
+
+                if raw_model3d_ids:
+                    try:
+                        parsed_ids = json.loads(raw_model3d_ids)
+                        if isinstance(parsed_ids, list):
+                            model3d_ids = parsed_ids
+                    except Exception:
+                        logger.warning("Invalid model3d_ids payload; ignoring")
+
+                if raw_is_shared:
+                    try:
+                        parsed_shared = json.loads(raw_is_shared)
+                        if isinstance(parsed_shared, list):
+                            is_shared_list = parsed_shared
+                    except Exception:
+                        logger.warning("Invalid is_shared_list payload; ignoring")
 
                 if not furniture_type:
                     return {
@@ -1199,6 +1238,8 @@ class TrainImages(Resource):
                         "message": "추가할 파일이 없습니다",
                     }, 400
 
+
+
                 # 임시 디렉토리 생성
                 upload_dir = current_app.config.get("UPLOAD_FOLDER", "uploads")
                 temp_dir = os.path.join(upload_dir, "temp_train", furniture_type)
@@ -1209,14 +1250,20 @@ class TrainImages(Resource):
                 )
 
                 # 파일 저장 및 벡터화
-                for file in files:
+                for idx, file in enumerate(files):
                     if file and allowed_file(file.filename):
                         filename = secure_filename(file.filename)
                         filepath = os.path.join(temp_dir, filename)
                         file.save(filepath)
 
+                        metadata_dict = {}
+                        if idx < len(model3d_ids):
+                            metadata_dict["model3d_id"] = model3d_ids[idx]
+                        if idx < len(is_shared_list):
+                            metadata_dict["is_shared"] = self._parse_bool(is_shared_list[idx], default=False)
+
                         # 벡터 DB에 추가
-                        if vectorizer.add_image_to_database(filepath, furniture_type):
+                        if vectorizer.add_image_to_database(filepath, furniture_type, metadata_dict or None):
                             added_count += 1
                         else:
                             failed_count += 1

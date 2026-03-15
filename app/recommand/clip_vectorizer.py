@@ -50,6 +50,29 @@ class CLIPVectorizer:
         self.index = faiss.IndexFlatIP(self.dimension)  # Inner Product 사용
         self.metadata: List[Dict] = []
 
+    @staticmethod
+    def _to_feature_tensor(features: object) -> Optional[torch.Tensor]:
+        """transformers 버전별 출력 형태를 텐서로 정규화합니다."""
+        if isinstance(features, torch.Tensor):
+            return features
+
+        # ModelOutput 계열: image_embeds/text_embeds/pooler_output 우선 사용
+        for attr in ("image_embeds", "text_embeds", "pooler_output", "last_hidden_state"):
+            value = getattr(features, attr, None)
+            if isinstance(value, torch.Tensor):
+                # last_hidden_state는 [batch, seq, dim] 이므로 CLS 토큰 사용
+                if attr == "last_hidden_state" and value.ndim == 3:
+                    return value[:, 0, :]
+                return value
+
+        # 튜플/리스트 반환 시 첫 텐서 사용
+        if isinstance(features, (tuple, list)):
+            for item in features:
+                if isinstance(item, torch.Tensor):
+                    return item
+
+        return None
+
     def _get_image_embedding(self, image: Image.Image) -> Optional[np.ndarray]:
         """
         이미지에서 CLIP 임베딩 추출
@@ -67,6 +90,10 @@ class CLIPVectorizer:
 
             with torch.no_grad():
                 features = self.model.get_image_features(**inputs)
+
+            features = self._to_feature_tensor(features)
+            if features is None:
+                raise RuntimeError("이미지 임베딩 텐서를 추출하지 못했습니다.")
 
             # L2 정규화
             features = features / features.norm(p=2, dim=-1, keepdim=True)
@@ -97,6 +124,10 @@ class CLIPVectorizer:
 
             with torch.no_grad():
                 features = self.model.get_text_features(**inputs)
+
+            features = self._to_feature_tensor(features)
+            if features is None:
+                raise RuntimeError("텍스트 임베딩 텐서를 추출하지 못했습니다.")
 
             # L2 정규화
             features = features / features.norm(p=2, dim=-1, keepdim=True)
@@ -148,6 +179,7 @@ class CLIPVectorizer:
                 "furniture_type": furniture_type,
                 "image_path": image_path,
                 "filename": os.path.basename(image_path),
+                "is_shared": True,
             }
 
             # 추가 메타데이터 병합 (model3d_id, is_shared, member_id 등)
@@ -290,7 +322,12 @@ class CLIPVectorizer:
             os.makedirs(os.path.dirname(index_path) or ".", exist_ok=True)
             os.makedirs(os.path.dirname(metadata_path) or ".", exist_ok=True)
 
-            faiss.write_index(self.index, index_path)
+            # NOTE: Windows 한글 경로에서 faiss.write_index가 실패할 수 있어
+            # Python 파일 IO로 직렬화 바이트를 직접 저장한다.
+            index_bytes = faiss.serialize_index(self.index)
+            with open(index_path, "wb") as f:
+                f.write(index_bytes.tobytes())
+
             with open(metadata_path, "wb") as f:
                 pickle.dump(self.metadata, f)
 
@@ -316,25 +353,27 @@ class CLIPVectorizer:
         """
         try:
             logger.debug(f"Attempting to load database from: {index_path}")
-            
+
             # 절대 경로로 변환
             abs_index_path = os.path.abspath(index_path)
             abs_metadata_path = os.path.abspath(metadata_path)
-            
+
             logger.debug(f"Absolute index path: {abs_index_path}")
             logger.debug(f"Absolute metadata path: {abs_metadata_path}")
-            
+
             if not os.path.exists(abs_index_path):
                 logger.error(f"[FAILED] Index file not found: {abs_index_path}")
                 return False
-            
+
             if not os.path.exists(abs_metadata_path):
                 logger.error(f"[FAILED] Metadata file not found: {abs_metadata_path}")
                 return False
 
             logger.debug("Loading FAISS index...")
-            self.index = faiss.read_index(abs_index_path)
-            
+            with open(abs_index_path, "rb") as f:
+                index_blob = f.read()
+            self.index = faiss.deserialize_index(np.frombuffer(index_blob, dtype=np.uint8))
+
             logger.debug("Loading metadata...")
             with open(abs_metadata_path, "rb") as f:
                 self.metadata = pickle.load(f)

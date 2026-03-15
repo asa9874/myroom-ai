@@ -207,8 +207,8 @@ if __name__ == '__main__':
     use_debugger = False  # Debugger 비활성화
     
     if debug_mode:
-        app.logger.warning("⚠️  DEBUG 모드 활성화 - FastAPI 성능이 저하될 수 있습니다")
-        app.logger.info("💡 권장: FLASK_ENV=production으로 실행하세요")
+        app.logger.warning("DEBUG 모드 활성화 - FastAPI 성능이 저하될 수 있습니다")
+        app.logger.info("권장: FLASK_ENV=production으로 실행하세요")
     
     app.run(
         host=host,

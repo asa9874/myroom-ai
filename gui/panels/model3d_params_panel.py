@@ -154,13 +154,36 @@ class Model3DParametersPanel(BaseSettingsPanel):
         self._refresh_mq_panel()
 
     def _build_ui(self) -> None:
-        self.columnconfigure(0, weight=0)
-        self.columnconfigure(1, weight=3)
-        self.columnconfigure(2, weight=2)
+        self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        left_panel = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=12, width=360)
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=8)
+        root_container = ctk.CTkFrame(self, fg_color=self.BG_PRIMARY, corner_radius=0)
+        root_container.grid(row=0, column=0, sticky="nsew")
+        root_container.rowconfigure(0, weight=1)
+        root_container.columnconfigure(0, weight=1)
+
+        main_pane = tk.PanedWindow(
+            root_container,
+            orient=tk.HORIZONTAL,
+            bg=self.BG_PRIMARY,
+            sashwidth=8,
+            sashrelief=tk.RAISED,
+            bd=0,
+            relief=tk.FLAT,
+            opaqueresize=True,
+        )
+        main_pane.grid(row=0, column=0, sticky="nsew")
+
+        left_pane = ctk.CTkFrame(main_pane, fg_color=self.BG_PRIMARY, corner_radius=0)
+        middle_pane = ctk.CTkFrame(main_pane, fg_color=self.BG_PRIMARY, corner_radius=0)
+        right_pane = ctk.CTkFrame(main_pane, fg_color=self.BG_PRIMARY, corner_radius=0)
+
+        main_pane.add(left_pane, minsize=280, width=320)
+        main_pane.add(middle_pane, minsize=480)
+        main_pane.add(right_pane, minsize=280, width=470)
+
+        left_panel = ctk.CTkFrame(left_pane, fg_color=self.BG_CARD, corner_radius=12)
+        left_panel.pack(fill="both", expand=True, padx=(8, 4), pady=8)
         left_panel.grid_propagate(False)
         left_panel.rowconfigure(3, weight=1)
         left_panel.columnconfigure(0, weight=1)
@@ -201,8 +224,8 @@ class Model3DParametersPanel(BaseSettingsPanel):
         )
         self.event_list_frame.grid(row=3, column=0, sticky="nsew", padx=12, pady=(30, 12))
 
-        middle_panel = ctk.CTkFrame(self, fg_color=self.BG_PRIMARY, corner_radius=12)
-        middle_panel.grid(row=0, column=1, sticky="nsew", padx=4, pady=8)
+        middle_panel = ctk.CTkFrame(middle_pane, fg_color=self.BG_PRIMARY, corner_radius=12)
+        middle_panel.pack(fill="both", expand=True, padx=4, pady=8)
         middle_panel.columnconfigure(0, weight=1)
         middle_panel.rowconfigure(0, weight=1)
 
@@ -217,8 +240,8 @@ class Model3DParametersPanel(BaseSettingsPanel):
 
         self._build_parameter_editor(self.content_frame)
 
-        right_panel = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=12, width=460)
-        right_panel.grid(row=0, column=2, sticky="nsew", padx=(4, 8), pady=8)
+        right_panel = ctk.CTkFrame(right_pane, fg_color=self.BG_CARD, corner_radius=12)
+        right_panel.pack(fill="both", expand=True, padx=(4, 8), pady=8)
         right_panel.grid_propagate(False)
         right_panel.columnconfigure(0, weight=1)
         right_panel.rowconfigure(2, weight=1)
