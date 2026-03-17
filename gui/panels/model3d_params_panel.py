@@ -125,9 +125,20 @@ class Model3DParametersPanel(BaseSettingsPanel):
         self._local_generation_lock = threading.Lock()
         self._local_generations: Dict[str, Dict[str, Any]] = {}
         self._local_generation_seq = 0
+        self._batch_generation_lock = threading.Lock()
+        self._batch_generation_running = False
+        self._batch_total = 0
+        self._batch_done = 0
+        self._batch_success = 0
+        self._batch_failed = 0
 
         self.entries: Dict[str, Any] = {}
         self.bool_vars: Dict[str, tk.BooleanVar] = {}
+        self.test_generate_button = None
+        self.batch_generate_button = None
+        self.batch_progress_bar = None
+        self.batch_progress_label = None
+        self.batch_progress_detail = None
         self.content_frame = None
 
         self.connection_list_frame = None
@@ -513,7 +524,7 @@ class Model3DParametersPanel(BaseSettingsPanel):
             text_color=self.TEXT_PRIMARY,
             font=("맑은 고딕", 11, "bold"),
         ).pack(side="left", padx=5)
-        ctk.CTkButton(
+        self.test_generate_button = ctk.CTkButton(
             button_frame,
             text="테스트 생성",
             command=self._on_test_generate_clicked,
@@ -523,7 +534,20 @@ class Model3DParametersPanel(BaseSettingsPanel):
             hover_color="#1d4ed8",
             text_color=self.TEXT_PRIMARY,
             font=("맑은 고딕", 11, "bold"),
-        ).pack(side="left", padx=5)
+        )
+        self.test_generate_button.pack(side="left", padx=5)
+        self.batch_generate_button = ctk.CTkButton(
+            button_frame,
+            text="폴더 일괄 생성",
+            command=self._on_batch_generate_clicked,
+            width=140,
+            height=34,
+            fg_color="#1e40af",
+            hover_color="#1d4ed8",
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 11, "bold"),
+        )
+        self.batch_generate_button.pack(side="left", padx=5)
         ctk.CTkButton(
             button_frame,
             text="VectorDB 관리",
@@ -535,6 +559,37 @@ class Model3DParametersPanel(BaseSettingsPanel):
             text_color=self.TEXT_PRIMARY,
             font=("맑은 고딕", 11, "bold"),
         ).pack(side="left", padx=5)
+
+        progress_wrap = ctk.CTkFrame(parent_widget, fg_color=self.BG_CARD, corner_radius=12)
+        progress_wrap.grid(row=row + 1, column=0, sticky="ew", padx=10, pady=(0, 8))
+        progress_wrap.columnconfigure(0, weight=1)
+
+        self.batch_progress_label = ctk.CTkLabel(
+            progress_wrap,
+            text="일괄 생성 대기 중",
+            text_color=self.TEXT_SECONDARY,
+            font=("맑은 고딕", 11, "bold"),
+            anchor="w",
+        )
+        self.batch_progress_label.grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 4))
+
+        self.batch_progress_bar = ctk.CTkProgressBar(
+            progress_wrap,
+            progress_color="#2563eb",
+            fg_color="#2a2f39",
+            height=12,
+        )
+        self.batch_progress_bar.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 4))
+        self.batch_progress_bar.set(0.0)
+
+        self.batch_progress_detail = ctk.CTkLabel(
+            progress_wrap,
+            text="완료 0/0 | 성공 0 | 실패 0",
+            text_color=self.TEXT_MUTED,
+            font=("맑은 고딕", 10),
+            anchor="w",
+        )
+        self.batch_progress_detail.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
 
         parent_widget.columnconfigure(0, weight=1)
 
@@ -602,6 +657,43 @@ class Model3DParametersPanel(BaseSettingsPanel):
         )
         worker.start()
 
+    def _on_batch_generate_clicked(self) -> None:
+        if self._is_batch_generation_running():
+            messagebox.showinfo("일괄 생성", "이미 일괄 생성 작업이 실행 중입니다.")
+            return
+
+        target_dir = filedialog.askdirectory(title="이미지 폴더 선택 (하위 폴더 포함)")
+        if not target_dir:
+            return
+
+        image_paths = self._collect_image_files_recursive(target_dir)
+        if not image_paths:
+            messagebox.showwarning("이미지 없음", "선택한 폴더 및 하위 폴더에 이미지 파일이 없습니다.")
+            return
+
+        try:
+            settings = self._collect_generation_settings_from_form()
+        except Exception as exc:
+            messagebox.showerror("설정 오류", f"생성 파라미터 파싱에 실패했습니다.\n{exc}")
+            return
+
+        self._set_batch_generation_running(True)
+        self._update_batch_progress_ui(
+            done=0,
+            total=len(image_paths),
+            success=0,
+            failed=0,
+            current_image="작업 준비 중",
+        )
+
+        worker = threading.Thread(
+            target=self._run_batch_test_generation,
+            args=(image_paths, settings),
+            daemon=True,
+            name="GuiBatchLocal3DGeneration",
+        )
+        worker.start()
+
     def _open_vectordb_manager(self) -> None:
         try:
             if self._vectordb_manager_window is not None:
@@ -662,6 +754,159 @@ class Model3DParametersPanel(BaseSettingsPanel):
             )
             if self.winfo_exists():
                 self.after(0, lambda: messagebox.showerror("테스트 생성 실패", str(exc)))
+
+    @staticmethod
+    def _collect_image_files_recursive(target_dir: str) -> List[str]:
+        image_extensions = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".avif"}
+        collected: List[str] = []
+        for root, _dirs, files in os.walk(target_dir):
+            for filename in files:
+                ext = os.path.splitext(filename)[1].lower()
+                if ext in image_extensions:
+                    collected.append(os.path.join(root, filename))
+        collected.sort()
+        return collected
+
+    def _run_batch_test_generation(self, image_paths: List[str], settings: Dict[str, Any]) -> None:
+        output_dir = os.path.join("uploads", "models")
+        os.makedirs(output_dir, exist_ok=True)
+
+        total = len(image_paths)
+        done = 0
+        success = 0
+        failed = 0
+        timestamp = int(time.time())
+
+        for idx, image_path in enumerate(image_paths, start=1):
+            model3d_id = f"batch-{timestamp}-{idx}"
+            job_id = self._start_local_generation(
+                model3d_id=model3d_id,
+                image_path=image_path,
+                settings=settings,
+            )
+
+            self._safe_after(
+                lambda p=image_path, d=done, t=total, s=success, f=failed: self._update_batch_progress_ui(
+                    done=d,
+                    total=t,
+                    success=s,
+                    failed=f,
+                    current_image=f"처리 중: {os.path.basename(p)}",
+                )
+            )
+
+            try:
+                model_path = self.local_generator.generate_3d_model(
+                    image_path=image_path,
+                    output_dir=output_dir,
+                    member_id=99999,
+                    seed=settings.get("seed"),
+                    ss_guidance_strength=settings.get("ss_guidance_strength"),
+                    ss_sampling_steps=settings.get("ss_sampling_steps"),
+                    slat_guidance_strength=settings.get("slat_guidance_strength"),
+                    slat_sampling_steps=settings.get("slat_sampling_steps"),
+                    mesh_simplify_ratio=settings.get("mesh_simplify_ratio"),
+                    texture_size=settings.get("texture_size"),
+                )
+
+                success += 1
+                self._update_local_generation(
+                    job_id,
+                    status="completed",
+                    model3d_path=model_path,
+                    model3d_url=f"file://{os.path.abspath(model_path)}",
+                    message="GUI 폴더 일괄 생성 완료",
+                )
+            except Exception as exc:
+                failed += 1
+                self._update_local_generation(
+                    job_id,
+                    status="failed",
+                    message=f"GUI 폴더 일괄 생성 실패: {exc}",
+                )
+
+            done += 1
+            self._safe_after(
+                lambda p=image_path, d=done, t=total, s=success, f=failed: self._update_batch_progress_ui(
+                    done=d,
+                    total=t,
+                    success=s,
+                    failed=f,
+                    current_image=f"완료: {os.path.basename(p)}",
+                )
+            )
+
+        self._safe_after(lambda: self._on_batch_generation_finished(total=total, success=success, failed=failed))
+
+    def _safe_after(self, callback) -> None:
+        try:
+            if self.winfo_exists():
+                self.after(0, callback)
+        except Exception:
+            pass
+
+    def _on_batch_generation_finished(self, total: int, success: int, failed: int) -> None:
+        self._set_batch_generation_running(False)
+        self._update_batch_progress_ui(
+            done=total,
+            total=total,
+            success=success,
+            failed=failed,
+            current_image="일괄 생성 완료",
+        )
+        messagebox.showinfo(
+            "폴더 일괄 생성 완료",
+            f"총 {total}개 처리\n성공 {success}개\n실패 {failed}개",
+        )
+
+    def _set_batch_generation_running(self, running: bool) -> None:
+        with self._batch_generation_lock:
+            self._batch_generation_running = bool(running)
+        self._update_batch_buttons_state()
+
+    def _is_batch_generation_running(self) -> bool:
+        with self._batch_generation_lock:
+            return bool(self._batch_generation_running)
+
+    def _update_batch_buttons_state(self) -> None:
+        running = self._is_batch_generation_running()
+        state = "disabled" if running else "normal"
+
+        if self.test_generate_button is not None:
+            self.test_generate_button.configure(state=state)
+        if self.batch_generate_button is not None:
+            self.batch_generate_button.configure(state=state)
+
+    def _update_batch_progress_ui(
+        self,
+        done: int,
+        total: int,
+        success: int,
+        failed: int,
+        current_image: str = "",
+    ) -> None:
+        self._batch_total = total
+        self._batch_done = done
+        self._batch_success = success
+        self._batch_failed = failed
+
+        ratio = 0.0 if total <= 0 else min(1.0, max(0.0, done / float(total)))
+        if self.batch_progress_bar is not None:
+            self.batch_progress_bar.set(ratio)
+
+        if self.batch_progress_label is not None:
+            if total <= 0:
+                label_text = "일괄 생성 대기 중"
+            else:
+                percent = int(ratio * 100)
+                image_text = f" | {current_image}" if current_image else ""
+                label_text = f"일괄 생성 진행률: {percent}% ({done}/{total}){image_text}"
+            self.batch_progress_label.configure(text=label_text)
+
+        if self.batch_progress_detail is not None:
+            self.batch_progress_detail.configure(
+                text=f"완료 {done}/{total} | 성공 {success} | 실패 {failed}"
+            )
 
     def _apply_preset(self, preset_name: str) -> None:
         preset = self.PRESETS.get(preset_name, {})
