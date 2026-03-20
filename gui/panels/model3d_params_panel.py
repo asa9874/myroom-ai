@@ -796,10 +796,12 @@ class Model3DParametersPanel(BaseSettingsPanel):
             )
 
             try:
+                image_basename, _ = os.path.splitext(os.path.basename(image_path))
                 model_path = self.local_generator.generate_3d_model(
                     image_path=image_path,
                     output_dir=output_dir,
                     member_id=99999,
+                    output_filename=f"{image_basename}.glb",
                     seed=settings.get("seed"),
                     ss_guidance_strength=settings.get("ss_guidance_strength"),
                     ss_sampling_steps=settings.get("ss_sampling_steps"),

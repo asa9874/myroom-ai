@@ -254,6 +254,7 @@ class Model3DGenerator:
         image_path: str,
         output_dir: str,
         member_id: int,
+        output_filename: Optional[str] = None,
         seed: Optional[int] = None,
         ss_guidance_strength: Optional[float] = None,
         ss_sampling_steps: Optional[int] = None,
@@ -275,6 +276,7 @@ class Model3DGenerator:
             image_path: 입력 이미지 경로
             output_dir: 생성된 모델을 저장할 디렉토리
             member_id: 사용자 ID (파일명에 사용)
+            output_filename: 저장할 출력 파일명(.glb). 미지정 시 기존 규칙 사용
             seed: 랜덤 시드 (기본값: 42)
             ss_guidance_strength: 첫 번째 단계 가이던스 강도 (기본값: 7.5)
             ss_sampling_steps: 첫 번째 단계 샘플링 스텝 수 (최적화: 20 추천)
@@ -385,8 +387,13 @@ class Model3DGenerator:
             raise Exception(f"3D 모델 다운로드 실패: {str(e)}")
         
         # 3D 모델 파일 저장
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"model3d_{member_id}_{timestamp}.glb"
+        if output_filename:
+            filename = output_filename
+            if os.path.splitext(filename)[1].lower() != '.glb':
+                filename = f"{filename}.glb"
+        else:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"model3d_{member_id}_{timestamp}.glb"
         filepath = os.path.join(output_dir, filename)
         
         # 디렉토리가 없으면 생성
