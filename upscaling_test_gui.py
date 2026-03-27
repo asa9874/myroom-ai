@@ -58,7 +58,10 @@ class UpscalingTestApp:
         
         # 상태
         self.running = False
-        self.selected_image = None
+        self.selected_image = None  # 단일 파일 경로
+        self.selected_images = []   # 다중 파일(디렉토리) 경로 리스트
+        self.selected_dir = None    # 디렉토리 경로
+        self.mode = "single"        # 'single' or 'batch'
         
         # 핵심 모듈
         self.model3d_gen = Model3DGenerator()
@@ -73,7 +76,6 @@ class UpscalingTestApp:
     
     def _build_ui(self):
         """UI 구축"""
-        # 메인 프레임
         main_frame = ctk.CTkFrame(self.root, fg_color=self.BG_PRIMARY)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
@@ -109,7 +111,14 @@ class UpscalingTestApp:
             hover_color="#3a4150",
             width=120
         ).pack(side="left", padx=5)
-        
+        ctk.CTkButton(
+            button_frame,
+            text="디렉토리 선택",
+            command=self._select_directory,
+            fg_color=self.ACCENT,
+            hover_color="#3a4150",
+            width=120
+        ).pack(side="left", padx=5)
         self.image_label = ctk.CTkLabel(
             button_frame,
             text="(선택됨)",
@@ -167,26 +176,140 @@ class UpscalingTestApp:
         )
         if filename:
             self.selected_image = filename
-            self.image_label.configure(text=os.path.basename(filename))
+            self.selected_images = []
+            self.selected_dir = None
+            self.mode = "single"
+            self.image_label.configure(text=f"(단일) {os.path.basename(filename)}")
             self._log(f"✓ 이미지 선택됨: {filename}", "success")
+
+    def _select_directory(self):
+        """디렉토리 선택"""
+        dirname = filedialog.askdirectory(title="이미지 디렉토리 선택")
+        if dirname:
+            # 이미지 파일만 필터링
+            exts = (".jpg", ".jpeg", ".png", ".bmp")
+            files = [os.path.join(dirname, f) for f in os.listdir(dirname) if f.lower().endswith(exts)]
+            files.sort()
+            if not files:
+                messagebox.showwarning("경고", "해당 디렉토리에 이미지 파일이 없습니다.")
+                return
+            self.selected_dir = dirname
+            self.selected_images = files
+            self.selected_image = None
+            self.mode = "batch"
+            self.image_label.configure(text=f"(디렉토리) {os.path.basename(dirname)} - {len(files)}장")
+            self._log(f"✓ 디렉토리 선택됨: {dirname} (이미지 {len(files)}장)", "success")
     
     def _start_test(self):
         """테스트 시작"""
-        if not self.selected_image:
-            messagebox.showwarning("경고", "이미지를 선택해주세요")
+        if self.mode == "single":
+            if not self.selected_image:
+                messagebox.showwarning("경고", "이미지를 선택해주세요")
+                return
+            if not os.path.exists(self.selected_image):
+                messagebox.showerror("오류", "선택한 이미지 파일이 없습니다")
+                return
+        elif self.mode == "batch":
+            if not self.selected_images:
+                messagebox.showwarning("경고", "이미지 디렉토리를 선택해주세요")
+                return
+        else:
+            messagebox.showwarning("경고", "이미지 또는 디렉토리를 선택해주세요")
             return
-        
-        if not os.path.exists(self.selected_image):
-            messagebox.showerror("오류", "선택한 이미지 파일이 없습니다")
-            return
-        
         if self.running:
             messagebox.showinfo("알림", "이미 실행 중입니다")
             return
-        
         # 스레드에서 실행
-        thread = threading.Thread(target=self._execute_test, daemon=True)
+        if self.mode == "single":
+            thread = threading.Thread(target=self._execute_test, daemon=True)
+        else:
+            thread = threading.Thread(target=self._execute_batch_test, daemon=True)
         thread.start()
+
+    def _execute_batch_test(self):
+        """디렉토리 내 여러 이미지 일괄 테스트"""
+        self.running = True
+        self.run_btn.configure(state="disabled")
+        batch_results = []
+        batch_log = []
+        try:
+            self._log("=" * 80, "title")
+            self._log(f"[시작] 디렉토리 일괄 업스케일링 & 3D 품질 테스트 ({len(self.selected_images)}장)", "title")
+            self._log("=" * 80, "title")
+            output_dir = os.path.join(self.selected_dir, "upscaling_test_batch")
+            os.makedirs(output_dir, exist_ok=True)
+            for idx, img_path in enumerate(self.selected_images, 1):
+                self._log(f"\n[{idx}/{len(self.selected_images)}] {os.path.basename(img_path)}", "info")
+                try:
+                    # 1단계: 원본 3D 모델 생성
+                    pre_model_result = self.model3d_gen.generate_3d_model_with_validation(
+                        image_path=img_path,
+                        output_dir=os.path.join(output_dir, f"pre_{idx:03d}"),
+                        member_id=999,
+                        strict_mode=False
+                    )
+                    if not pre_model_result['success']:
+                        self._log(f"✗ 실패: {pre_model_result['message']}", "error")
+                        continue
+                    pre_model_path = pre_model_result['model_path']
+                    # 2단계: 원본 3D 모델 평가
+                    pre_eval_result = self.evaluator.evaluate(pre_model_path, "pre-upscale")
+                    # 3단계: 업스케일
+                    upscaled_path = os.path.join(output_dir, f"upscaled_{idx:03d}.png")
+                    upscale_meta = self.upscaler.upscale(img_path, upscaled_path)
+                    if not upscale_meta['success']:
+                        self._log(f"✗ 업스케일 실패: {upscale_meta.get('error')}", "error")
+                        continue
+                    # 4단계: 업스케일 3D 모델 생성
+                    post_model_result = self.model3d_gen.generate_3d_model_with_validation(
+                        image_path=upscaled_path,
+                        output_dir=os.path.join(output_dir, f"post_{idx:03d}"),
+                        member_id=999,
+                        strict_mode=False
+                    )
+                    if not post_model_result['success']:
+                        self._log(f"✗ 업스케일 3D 생성 실패: {post_model_result['message']}", "error")
+                        continue
+                    post_model_path = post_model_result['model_path']
+                    # 5단계: 업스케일 3D 모델 평가
+                    post_eval_result = self.evaluator.evaluate(post_model_path, "post-upscale")
+                    # 6단계: 비교 분석
+                    comparison_result = self.evaluator.compare(pre_eval_result, post_eval_result)
+                    # 통합 결과 저장용
+                    batch_results.append({
+                        "image": os.path.basename(img_path),
+                        "pre_eval": pre_eval_result,
+                        "post_eval": post_eval_result,
+                        "comparison": comparison_result
+                    })
+                    batch_log.append({
+                        "image": os.path.basename(img_path),
+                        "pre_model": pre_model_path,
+                        "post_model": post_model_path,
+                        "upscaled": upscaled_path
+                    })
+                    self._log(f"✓ 완료", "success")
+                except Exception as e:
+                    self._log(f"[오류] {str(e)}", "error")
+            # 통합 로그 저장
+            from datetime import datetime
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_path = os.path.join(output_dir, f"batch_{ts}_result.json")
+            import json
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(batch_results, f, ensure_ascii=False, indent=2)
+            self._log(f"\n✓ 통합 결과 저장: {log_path}", "success")
+            self._log("=" * 80, "title")
+            self._log("[완료] 일괄 테스트 완료", "title")
+            self._log("=" * 80, "title")
+            messagebox.showinfo("완료", f"일괄 테스트가 완료되었습니다!\n결과: {log_path}")
+        except Exception as e:
+            self._log(f"[오류] {str(e)}", "error")
+            import traceback
+            self._log(traceback.format_exc(), "error")
+        finally:
+            self.running = False
+            self.run_btn.configure(state="normal")
     
     def _execute_test(self):
         """테스트 실행"""
