@@ -52,6 +52,7 @@ class UpscalingTestApp:
     def __init__(self):
         """앱 초기화"""
         self.root = ctk.CTk()
+        self.enable_iqa_var = ctk.BooleanVar(value=True)
         self.root.title("업스케일링 & 3D 품질 테스트")
         self.root.geometry("900x700")
         self.root.configure(fg_color=self.BG_PRIMARY)
@@ -119,6 +120,15 @@ class UpscalingTestApp:
             hover_color="#3a4150",
             width=120
         ).pack(side="left", padx=5)
+
+        self.iqa_switch = ctk.CTkSwitch(
+            select_frame,
+            text="이미지 품질평가(IQA) 활성화",
+            variable=self.enable_iqa_var,
+            onvalue=True,
+            offvalue=False
+        )
+        self.iqa_switch.pack(anchor="w", padx=10, pady=(0, 10))
         self.image_label = ctk.CTkLabel(
             button_frame,
             text="(선택됨)",
