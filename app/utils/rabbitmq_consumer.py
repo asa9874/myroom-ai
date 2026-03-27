@@ -19,6 +19,7 @@ from .model3d_generator import Model3DGenerator, Model3DServerUnavailableError
 from .model3d_params import Model3DParameterManager, RuntimeModel3DParameterStore
 from .mq_monitor import get_mq_monitor
 from .s3_manager import S3Manager
+from .upscaler import create_upscaler
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,13 @@ class Model3DConsumer:
         self.parameter_manager = Model3DParameterManager()
         self.runtime_store = RuntimeModel3DParameterStore(self.parameter_manager)
         self.model_generator = Model3DGenerator(parameter_manager=self.parameter_manager)
+        # Upscaler 인스턴스 (자동 업스케일링용)
+        try:
+            self.upscaler = create_upscaler()
+            logger.info("Upscaler 초기화 완료 (RabbitMQ consumer)")
+        except Exception as e:
+            self.upscaler = None
+            logger.warning(f"Upscaler 초기화 실패: {e}")
         
         # S3 Manager 인스턴스 생성 (S3 사용 시에만)
         if self.use_s3:
@@ -365,6 +373,46 @@ class Model3DConsumer:
                 logger.info("[MODE] 멀티뷰 요청에서는 detected_object 크롭을 건너뜁니다.")
             else:
                 logger.info("[MODE] 원본 이미지로 3D 모델 생성 (MODEL3D_USE_DETECTED_OBJECT=false)")
+
+            # 자동 업스케일링: 런타임 옵션에 따라 업스케일 수행
+            try:
+                auto_upscale = runtime_options.get('model3d_auto_upscale', False)
+            except Exception:
+                auto_upscale = False
+
+            if auto_upscale and getattr(self, 'upscaler', None) is not None:
+                logger.info("[MODE] 자동 업스케일링 활성화됨 — 업스케일 진행")
+                try:
+                    # 멀티뷰이면 각 이미지에 대해 업스케일(무거움), 단일이면 단일 파일만 업스케일
+                    if is_multi_view:
+                        upscaled_paths = []
+                        for p in input_image_paths:
+                            base = os.path.splitext(os.path.basename(p))[0]
+                            up_path = os.path.join(os.path.dirname(p), f"upscaled_{base}_{int(time.time())}.png")
+                            meta = self.upscaler.upscale(p, up_path)
+                            if meta.get('success'):
+                                upscaled_paths.append(up_path)
+                                logger.info(f"[UPSCALE] {p} -> {up_path} ({meta.get('upscaled_size')})")
+                            else:
+                                upscaled_paths.append(p)
+                                logger.warning(f"[UPSCALE] 실패: {meta.get('error')} — 원본 사용: {p}")
+                        if upscaled_paths:
+                            input_image_paths = upscaled_paths
+                            input_image_path = upscaled_paths[0]
+                    else:
+                        base = os.path.splitext(os.path.basename(input_image_path))[0]
+                        up_path = os.path.join(os.path.dirname(input_image_path), f"upscaled_{base}_{int(time.time())}.png")
+                        meta = self.upscaler.upscale(input_image_path, up_path)
+                        if meta.get('success'):
+                            input_image_path = up_path
+                            input_image_paths = [up_path]
+                            logger.info(f"[UPSCALE] 단일 업스케일 적용: {up_path} ({meta.get('upscaled_size')})")
+                        else:
+                            logger.warning(f"[UPSCALE] 업스케일 실패: {meta.get('error')} — 원본 사용 계속")
+                except Exception as e:
+                    logger.error(f"[UPSCALE] 자동 업스케일 처리 중 오류: {e}", exc_info=True)
+            elif auto_upscale:
+                logger.warning("[UPSCALE] 자동 업스케일 옵션이 활성화되어 있으나 업스케일러가 초기화되지 않았습니다.")
 
             # 4. AI 모델로 3D 생성 (실제 API 호출)
             logger.info("3D 모델 생성 중... (수 분 소요 가능)")
@@ -764,6 +812,7 @@ class Model3DConsumer:
             'model3d_use_detected_object': bool(options.get('model3d_use_detected_object', True)),
             'quality_check_enabled': bool(options.get('quality_check_enabled', True)),
             'quality_check_strict_mode': bool(options.get('quality_check_strict_mode', False)),
+            'model3d_auto_upscale': bool(options.get('model3d_auto_upscale', False)),
         }
 
     def _get_runtime_snapshot(self) -> Dict[str, Any]:

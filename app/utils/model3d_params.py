@@ -33,7 +33,8 @@ DEFAULT_MODEL3D_PARAMS: Dict[str, Any] = {
     "runtime_options": {
         "model3d_use_detected_object": True,
         "quality_check_enabled": True,
-        "quality_check_strict_mode": False
+        "quality_check_strict_mode": False,
+        "model3d_auto_upscale": True
     }
 }
 
@@ -149,6 +150,9 @@ class Model3DParameterManager:
         )
         runtime_options["quality_check_strict_mode"] = bool(
             runtime_options.get("quality_check_strict_mode", False)
+        )
+        runtime_options["model3d_auto_upscale"] = bool(
+            runtime_options.get("model3d_auto_upscale", False)
         )
 
         api = params.setdefault("api", {})

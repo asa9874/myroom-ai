@@ -89,6 +89,7 @@ class Model3DParametersPanel(BaseSettingsPanel):
         "runtime_options.model3d_use_detected_object",
         "runtime_options.quality_check_enabled",
         "runtime_options.quality_check_strict_mode",
+        "runtime_options.model3d_auto_upscale",
     }
 
     FIELD_LABELS = {
@@ -96,6 +97,7 @@ class Model3DParametersPanel(BaseSettingsPanel):
         "runtime_options.model3d_use_detected_object": "감지 객체 우선 사용",
         "runtime_options.quality_check_enabled": "품질 검사 사용",
         "runtime_options.quality_check_strict_mode": "엄격 품질 모드",
+        "runtime_options.model3d_auto_upscale": "자동 업스케일링",
         "generation_defaults.seed": "Seed",
         "generation_defaults.ss_guidance_strength": "SS Guidance",
         "generation_defaults.ss_sampling_steps": "SS Steps",
@@ -360,6 +362,7 @@ class Model3DParametersPanel(BaseSettingsPanel):
             "runtime_options.model3d_use_detected_object",
             "runtime_options.quality_check_enabled",
             "runtime_options.quality_check_strict_mode",
+            "runtime_options.model3d_auto_upscale",
         ]
         for idx, key in enumerate(runtime_fields, start=1):
             row_frame = ctk.CTkFrame(runtime_card, fg_color="#1a1f27", corner_radius=8)
