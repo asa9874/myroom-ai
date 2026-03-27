@@ -14,6 +14,7 @@ from PIL import Image
 
 from app.utils.model3d_params import Model3DParameterManager
 from app.utils.model3d_generator import Model3DGenerator
+from app.utils.upscaler import create_upscaler
 from .base_panel import BaseSettingsPanel
 from .vectordb_manager_window import VectorDBManagerWindow
 from gui.widgets import launch_external_glb_viewer
@@ -122,6 +123,8 @@ class Model3DParametersPanel(BaseSettingsPanel):
         self.runtime_api_base = "http://127.0.0.1:5000/api/model3d-params"
         self.mq_api_base = "http://127.0.0.1:5000/api/mq-monitor"
         self.local_generator = Model3DGenerator(parameter_manager=self.manager)
+        self.upscaler = create_upscaler()  # ← 업스케일러 초기화
+        self.enable_upscaling_var = tk.BooleanVar(value=False)  # ← 업스케일링 토글 상태
         self._local_generation_lock = threading.Lock()
         self._local_generations: Dict[str, Dict[str, Any]] = {}
         self._local_generation_seq = 0
@@ -524,6 +527,27 @@ class Model3DParametersPanel(BaseSettingsPanel):
             text_color=self.TEXT_PRIMARY,
             font=("맑은 고딕", 11, "bold"),
         ).pack(side="left", padx=5)
+        
+        # 업스케일링 토글 추가
+        upscale_frame = ctk.CTkFrame(button_frame, fg_color="transparent")
+        upscale_frame.pack(side="left", padx=10)
+        
+        ctk.CTkLabel(
+            upscale_frame,
+            text="업스케일링:",
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 10),
+        ).pack(side="left", padx=(0, 8))
+        
+        ctk.CTkSwitch(
+            upscale_frame,
+            text="",
+            variable=self.enable_upscaling_var,
+            onvalue=True,
+            offvalue=False,
+            fg_color="#2563eb",
+        ).pack(side="left")
+        
         self.test_generate_button = ctk.CTkButton(
             button_frame,
             text="테스트 생성",
@@ -722,9 +746,33 @@ class Model3DParametersPanel(BaseSettingsPanel):
         try:
             output_dir = os.path.join("uploads", "models")
             os.makedirs(output_dir, exist_ok=True)
+            
+            # 업스케일링이 활성화되었는지 확인
+            enable_upscaling = self.enable_upscaling_var.get()
+            if enable_upscaling:
+                # 업스케일된 이미지 경로 설정
+                upscaled_path = os.path.join(output_dir, f"upscaled_{int(time.time())}.png")
+                upscale_meta = self.upscaler.upscale(image_path, upscaled_path)
+                
+                if upscale_meta['success']:
+                    actual_image_path = upscaled_path
+                    self._update_local_generation(
+                        job_id,
+                        status="processing",
+                        message=f"업스케일링 완료: {upscale_meta['original_size']} → {upscale_meta['upscaled_size']}",
+                    )
+                else:
+                    self._update_local_generation(
+                        job_id,
+                        status="processing",
+                        message=f"업스케일링 실패: {upscale_meta.get('error', 'Unknown error')}. 원본 이미지로 진행합니다.",
+                    )
+                    actual_image_path = image_path
+            else:
+                actual_image_path = image_path
 
             model_path = self.local_generator.generate_3d_model(
-                image_path=image_path,
+                image_path=actual_image_path,
                 output_dir=output_dir,
                 member_id=99999,
                 seed=settings.get("seed"),
@@ -797,8 +845,23 @@ class Model3DParametersPanel(BaseSettingsPanel):
 
             try:
                 image_basename, _ = os.path.splitext(os.path.basename(image_path))
+                
+                # 업스케일링이 활성화되었는지 확인
+                enable_upscaling = self.enable_upscaling_var.get()
+                if enable_upscaling:
+                    # 업스케일된 이미지 경로 설정
+                    upscaled_path = os.path.join(output_dir, f"upscaled_{image_basename}_{int(time.time())}.png")
+                    upscale_meta = self.upscaler.upscale(image_path, upscaled_path)
+                    
+                    if upscale_meta['success']:
+                        actual_image_path = upscaled_path
+                    else:
+                        actual_image_path = image_path
+                else:
+                    actual_image_path = image_path
+                
                 model_path = self.local_generator.generate_3d_model(
-                    image_path=image_path,
+                    image_path=actual_image_path,
                     output_dir=output_dir,
                     member_id=99999,
                     output_filename=f"{image_basename}.glb",
