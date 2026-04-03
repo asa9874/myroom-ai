@@ -1029,6 +1029,25 @@ class AnalyzeRoom(Resource):
                 reasoning = analysis_result["recommendation"]["reasoning"]
                 search_query = analysis_result["recommendation"]["search_query"]
 
+                image_source_ok = room_context.get("image_source_ok", True)
+                if not image_source_ok:
+                    import time
+                    member_id = request.args.get("member_id", None, type=int)
+                    return {
+                        "status": "warning",
+                        "message": room_context.get("image_error") or "이미지 로드에 실패했습니다",
+                        "member_id": member_id,
+                        "room_analysis": room_context,
+                        "recommendation": {
+                            "target_category": target_category or "미지정",
+                            "reasoning": reasoning,
+                            "search_query": "",
+                            "results": [],
+                            "result_count": 0,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }, 200
+
                 search_engine = get_search_engine()
                 recommendations = search_engine.search_by_text(
                     search_query, top_k, target_category

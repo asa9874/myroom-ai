@@ -897,6 +897,33 @@ class VectorDBManagerWindow:
             recommendation = payload.get("recommendation", {}) or {}
             room_analysis = payload.get("room_analysis", {}) or {}
 
+            normalized_detected_furniture = room_analysis.get(
+                "detectedFurniture",
+                room_analysis.get("detected_furniture", []),
+            )
+            normalized_detected_count = room_analysis.get(
+                "detectedCount",
+                room_analysis.get("detected_count"),
+            )
+            if normalized_detected_count is None:
+                normalized_detected_count = (
+                    len(normalized_detected_furniture)
+                    if isinstance(normalized_detected_furniture, list)
+                    else 0
+                )
+
+            normalized_room_analysis = {
+                "style": room_analysis.get("style", ""),
+                "color": room_analysis.get("color", ""),
+                "material": room_analysis.get("material", ""),
+                "detectedFurniture": normalized_detected_furniture,
+                "detectedCount": normalized_detected_count,
+                "detailedDetections": room_analysis.get(
+                    "detailedDetections",
+                    room_analysis.get("detailed_detections", []),
+                ),
+            }
+
             normalized_recommendation = {
                 "targetCategory": recommendation.get("target_category", category),
                 "reasoning": recommendation.get("reasoning", ""),
@@ -910,7 +937,7 @@ class VectorDBManagerWindow:
                 status=status,
                 category=normalized_recommendation.get("targetCategory") or (category or "미지정"),
                 result_count=normalized_recommendation.get("resultCount", 0),
-                room_analysis=room_analysis,
+                room_analysis=normalized_room_analysis,
                 recommendation=normalized_recommendation,
                 raw=payload,
                 timestamp=datetime.now().isoformat(),
@@ -1105,6 +1132,17 @@ class VectorDBManagerWindow:
 
         room_analysis = rec.get("room_analysis", {}) or {}
         recommendation = rec.get("recommendation", {}) or {}
+        detected_furniture = room_analysis.get(
+            "detectedFurniture",
+            room_analysis.get("detected_furniture", []),
+        )
+        detected_count = room_analysis.get(
+            "detectedCount",
+            room_analysis.get("detected_count"),
+        )
+        if detected_count is None:
+            detected_count = len(detected_furniture) if isinstance(detected_furniture, list) else 0
+
         ctk.CTkLabel(
             right,
             text="Room Analysis & Query",
@@ -1125,8 +1163,8 @@ class VectorDBManagerWindow:
         self._add_detail_pill_row(analysis_frame, "style", room_analysis.get("style"))
         self._add_detail_pill_row(analysis_frame, "color", room_analysis.get("color"))
         self._add_detail_pill_row(analysis_frame, "material", room_analysis.get("material"))
-        self._add_detail_pill_row(analysis_frame, "detectedCount", room_analysis.get("detectedCount"))
-        self._add_detail_pill_row(analysis_frame, "detectedFurniture", room_analysis.get("detectedFurniture"))
+        self._add_detail_pill_row(analysis_frame, "detectedCount", detected_count)
+        self._add_detail_pill_row(analysis_frame, "detectedFurniture", detected_furniture)
         self._add_detail_pill_row(analysis_frame, "reasoning", recommendation.get("reasoning"))
         self._add_detail_pill_row(analysis_frame, "searchQuery", recommendation.get("searchQuery"))
 

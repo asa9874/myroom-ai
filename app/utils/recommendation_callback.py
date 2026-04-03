@@ -90,6 +90,47 @@ def process_recommendation_message(ch, method, properties, body):
             
             logger.info(f"[DONE] 이미지 분석 완료")
             logger.info(f"    감지된 가구: {analysis_result['room_analysis'].get('detected_furniture', [])}")
+
+            room_analysis = analysis_result.get('room_analysis', {})
+            image_source_ok = room_analysis.get('image_source_ok', True)
+            image_error = room_analysis.get('image_error')
+
+            if not image_source_ok:
+                logger.warning(f"[WARN] 이미지 로드 실패로 추천 검색을 건너뜁니다: {image_error}")
+                response_message = {
+                    "memberId": member_id,
+                    "status": "warning",
+                    "error": image_error or "이미지 로드에 실패했습니다",
+                    "roomAnalysis": {
+                        "style": room_analysis.get('style'),
+                        "color": room_analysis.get('color'),
+                        "material": room_analysis.get('material'),
+                        "detectedFurniture": room_analysis.get('detected_furniture', []),
+                        "detectedCount": room_analysis.get('detected_count', 0),
+                        "detailedDetections": room_analysis.get('detailed_detections', []),
+                        "imageSourceOk": room_analysis.get('image_source_ok', False),
+                        "imageError": room_analysis.get('image_error'),
+                    },
+                    "recommendation": {
+                        "targetCategory": category,
+                        "reasoning": analysis_result['recommendation'].get('reasoning'),
+                        "searchQuery": "",
+                        "results": [],
+                        "resultCount": 0,
+                    },
+                    "timestamp": int(datetime.now().timestamp() * 1000)
+                }
+                producer = RecommendationProducer(app_context.config)
+                success = producer.send_recommendation_response(response_message)
+
+                if success:
+                    ch.basic_ack(delivery_tag=method.delivery_tag)
+                    processing_time = time.time() - start_time
+                    logger.info(f"[COMPLETE] 메시지 처리 완료 (소요 시간: {processing_time:.2f}초)")
+                else:
+                    logger.warning(f"응답 발송 실패, 메시지 재큐...")
+                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+                return
             
             # 6. 가구 추천
             logger.info(f"[SEARCH] 가구 추천 검색 중 (category={category}, topK={top_k})...")
