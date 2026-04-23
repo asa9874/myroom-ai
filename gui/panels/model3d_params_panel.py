@@ -17,6 +17,7 @@ from app.utils.model3d_generator import Model3DGenerator
 from app.utils.upscaler import create_upscaler
 from .base_panel import BaseSettingsPanel
 from .vectordb_manager_window import VectorDBManagerWindow
+from .room3d_manager_window import Room3DManagerWindow
 from gui.widgets import launch_external_glb_viewer
 
 
@@ -38,6 +39,8 @@ class Model3DParametersPanel(BaseSettingsPanel):
         "recommand.request.queue",
         "model3d.metadata.update.queue",
         "model3d.delete.queue",
+        "room3d.request.queue",
+        "room3d.response.queue",
     ]
 
     QUEUE_DISPLAY_NAMES = {
@@ -47,6 +50,10 @@ class Model3DParametersPanel(BaseSettingsPanel):
         "model3d.delete.queue": "3D 모델 삭제 요청",
         "model3d.response": "3D 모델 생성 응답",
         "recommand.response": "가구 추천 응답",
+        "room3d.request.queue": "Room3D 요청",
+        "room3d.response.queue": "Room3D 응답",
+        "room3d.request": "Room3D 요청",
+        "room3d.response": "Room3D 응답",
     }
 
     PRESET_FIELDS = [
@@ -163,6 +170,7 @@ class Model3DParametersPanel(BaseSettingsPanel):
         self._last_generation_signature = None
         self._generation_field_descriptions = self._load_generation_field_descriptions()
         self._vectordb_manager_window = None
+        self._room3d_manager_window = None
 
         self.configure(fg_color=self.BG_PRIMARY)
         self._build_ui()
@@ -586,6 +594,17 @@ class Model3DParametersPanel(BaseSettingsPanel):
             text_color=self.TEXT_PRIMARY,
             font=("맑은 고딕", 11, "bold"),
         ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            button_frame,
+            text="Room3D 관리",
+            command=self._open_room3d_manager,
+            width=130,
+            height=34,
+            fg_color="#b45309",
+            hover_color="#92400e",
+            text_color=self.TEXT_PRIMARY,
+            font=("맑은 고딕", 11, "bold"),
+        ).pack(side="left", padx=5)
 
         progress_wrap = ctk.CTkFrame(parent_widget, fg_color=self.BG_CARD, corner_radius=12)
         progress_wrap.grid(row=row + 1, column=0, sticky="ew", padx=10, pady=(0, 8))
@@ -733,6 +752,19 @@ class Model3DParametersPanel(BaseSettingsPanel):
             self._vectordb_manager_window = VectorDBManagerWindow(self)
         except Exception as exc:
             messagebox.showerror("VectorDB 관리", f"관리창 열기 실패\n{exc}")
+
+    def _open_room3d_manager(self) -> None:
+        try:
+            if self._room3d_manager_window is not None:
+                window = getattr(self._room3d_manager_window, "window", None)
+                if window is not None and window.winfo_exists():
+                    window.lift()
+                    window.focus_force()
+                    return
+
+            self._room3d_manager_window = Room3DManagerWindow(self)
+        except Exception as exc:
+            messagebox.showerror("Room3D 관리", f"관리창 열기 실패\n{exc}")
 
     def _collect_generation_settings_from_form(self) -> Dict[str, Any]:
         settings: Dict[str, Any] = {}

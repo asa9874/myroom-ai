@@ -214,6 +214,7 @@ def register_routes(api):
     from app.routes.image_quality import ns as image_quality_ns
     from app.routes.model3d_params import ns as model3d_params_ns
     from app.routes.mq_monitor import ns as mq_monitor_ns
+    from app.routes.room3d import ns as room3d_ns
     
     # 네임스페이스 추가
     api.add_namespace(health_ns, path='/health')
@@ -221,6 +222,7 @@ def register_routes(api):
     api.add_namespace(image_quality_ns, path='/api/image-quality')
     api.add_namespace(model3d_params_ns, path='/model3d-params')
     api.add_namespace(mq_monitor_ns, path='/mq-monitor')
+    api.add_namespace(room3d_ns)
     
     # 추천 시스템 초기화
     try:

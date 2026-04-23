@@ -64,6 +64,14 @@ class Config:
     # RabbitMQ VectorDB 삭제 설정 (Spring Boot → Flask)
     MODEL3D_DELETE_QUEUE = os.environ.get('MODEL3D_DELETE_QUEUE') or 'model3d.delete.queue'
     MODEL3D_DELETE_ROUTING_KEY = os.environ.get('MODEL3D_DELETE_ROUTING_KEY') or 'model3d.delete'
+
+    # RabbitMQ Room3D 설정 (Spring Boot ↔ Flask)
+    ROOM3D_EXCHANGE = os.environ.get('ROOM3D_EXCHANGE') or 'room3d.exchange'
+    ROOM3D_REQUEST_QUEUE = os.environ.get('ROOM3D_REQUEST_QUEUE') or 'room3d.request.queue'
+    ROOM3D_REQUEST_ROUTING_KEY = os.environ.get('ROOM3D_REQUEST_ROUTING_KEY') or 'room3d.request'
+    ROOM3D_RESPONSE_QUEUE = os.environ.get('ROOM3D_RESPONSE_QUEUE') or 'room3d.response.queue'
+    ROOM3D_RESPONSE_ROUTING_KEY = os.environ.get('ROOM3D_RESPONSE_ROUTING_KEY') or 'room3d.response'
+    ROOM3D_XML_PLACEHOLDER_TEXT = os.environ.get('ROOM3D_XML_PLACEHOLDER_TEXT') or '이 텍스트는 임시텍스트입니다.'
     
     # 3D 모델 저장 경로
     MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
