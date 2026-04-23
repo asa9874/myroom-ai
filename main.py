@@ -36,6 +36,7 @@ from app.utils.recommendation_consumer import start_recommendation_consumer_thre
 from app.utils.metadata_update_consumer import start_metadata_update_consumer_thread
 from app.utils.model3d_delete_consumer import start_model3d_delete_consumer_thread
 from app.utils.room3d_consumer import start_room3d_consumer_thread
+from app.utils.model_dimensions_consumer import start_model_dimensions_consumer_thread
 
 
 def parse_arguments():
@@ -189,6 +190,13 @@ if __name__ == '__main__':
         app.logger.info('Room3D 요청 Consumer 스레드 시작됨')
     except Exception as e:
         app.logger.warning(f'Room3D 요청 Consumer 시작 실패: {e}')
+
+    # RabbitMQ Consumer (가구 치수 추출)를 별도 스레드에서 시작
+    try:
+        start_model_dimensions_consumer_thread(app)
+        app.logger.info('가구 치수 추출 Consumer 스레드 시작됨')
+    except Exception as e:
+        app.logger.warning(f'가구 치수 추출 Consumer 시작 실패: {e}')
     
     # RabbitMQ Consumer (메타데이터 업데이트)를 별도 스레드에서 시작
     try:

@@ -41,6 +41,8 @@ class Model3DParametersPanel(BaseSettingsPanel):
         "model3d.delete.queue",
         "room3d.request.queue",
         "room3d.response.queue",
+        "model3d.dimensions.request.queue",
+        "model3d.dimensions.response.queue",
     ]
 
     QUEUE_DISPLAY_NAMES = {
@@ -54,6 +56,10 @@ class Model3DParametersPanel(BaseSettingsPanel):
         "room3d.response.queue": "Room3D 응답",
         "room3d.request": "Room3D 요청",
         "room3d.response": "Room3D 응답",
+        "model3d.dimensions.request.queue": "가구 치수 추출 요청",
+        "model3d.dimensions.response.queue": "가구 치수 추출 응답",
+        "model3d.dimensions.request": "가구 치수 추출 요청",
+        "model3d.dimensions.response": "가구 치수 추출 응답",
     }
 
     PRESET_FIELDS = [

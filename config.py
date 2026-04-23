@@ -72,6 +72,20 @@ class Config:
     ROOM3D_RESPONSE_QUEUE = os.environ.get('ROOM3D_RESPONSE_QUEUE') or 'room3d.response.queue'
     ROOM3D_RESPONSE_ROUTING_KEY = os.environ.get('ROOM3D_RESPONSE_ROUTING_KEY') or 'room3d.response'
     ROOM3D_XML_PLACEHOLDER_TEXT = os.environ.get('ROOM3D_XML_PLACEHOLDER_TEXT') or '이 텍스트는 임시텍스트입니다.'
+
+    # RabbitMQ 가구 치수 추출 설정 (Spring Boot ↔ Flask)
+    DIMENSIONS_EXCHANGE = os.environ.get('DIMENSIONS_EXCHANGE') or 'model3d.exchange'
+    DIMENSIONS_REQUEST_QUEUE = os.environ.get('DIMENSIONS_REQUEST_QUEUE') or 'model3d.dimensions.request.queue'
+    DIMENSIONS_REQUEST_ROUTING_KEY = os.environ.get('DIMENSIONS_REQUEST_ROUTING_KEY') or 'model3d.dimensions.request'
+    DIMENSIONS_RESPONSE_QUEUE = os.environ.get('DIMENSIONS_RESPONSE_QUEUE') or 'model3d.dimensions.response.queue'
+    DIMENSIONS_RESPONSE_ROUTING_KEY = os.environ.get('DIMENSIONS_RESPONSE_ROUTING_KEY') or 'model3d.dimensions.response'
+    DIMENSIONS_PROMPT_FILE = os.environ.get('DIMENSIONS_PROMPT_FILE') or os.path.join(os.path.dirname(__file__), '가구사이즈이미지추출프롬프트')
+    DIMENSIONS_GEMINI_PRIMARY_MODEL = os.environ.get('DIMENSIONS_GEMINI_PRIMARY_MODEL') or os.environ.get('GEMINI_PRIMARY_MODEL') or 'gemini-2.5-flash'
+    DIMENSIONS_GEMINI_FALLBACK_MODELS = [
+        os.environ.get('DIMENSIONS_GEMINI_FALLBACK_MODEL_1') or 'gemini-2.5-pro',
+        os.environ.get('DIMENSIONS_GEMINI_FALLBACK_MODEL_2') or 'gemini-3-flash',
+    ]
+    DIMENSIONS_GEMINI_TIMEOUT = int(os.environ.get('DIMENSIONS_GEMINI_TIMEOUT') or 45)
     
     # 3D 모델 저장 경로
     MODEL3D_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads', 'models')
