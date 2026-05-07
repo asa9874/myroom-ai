@@ -235,6 +235,44 @@ class S3Manager:
             error_msg = f"S3 파일 삭제 중 오류: {e}"
             logger.error(error_msg, exc_info=True)
             return False, error_msg
+
+    def upload_bytes(self, data: bytes, s3_key: str, content_type: str) -> Tuple[bool, str]:
+        """
+        바이너리 데이터를 S3에 업로드
+
+        Args:
+            data: 업로드할 바이트
+            s3_key: S3 버킷 내 파일 경로
+            content_type: 업로드 콘텐츠 타입
+
+        Returns:
+            (성공 여부, S3 URL 또는 에러 메시지) 튜플
+        """
+        try:
+            if not self.s3_client:
+                logger.error("S3 클라이언트가 초기화되지 않았습니다.")
+                return False, "S3 client not initialized"
+
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Body=data,
+                ContentType=content_type,
+            )
+
+            s3_url = f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
+            logger.info("[OK] S3 바이트 업로드 성공: %s", s3_url)
+            return True, s3_url
+
+        except ClientError as e:
+            error_msg = f"S3 바이트 업로드 실패 (ClientError): {e}"
+            logger.error(error_msg)
+            return False, error_msg
+
+        except Exception as e:
+            error_msg = f"S3 바이트 업로드 중 오류: {e}"
+            logger.error(error_msg, exc_info=True)
+            return False, error_msg
     
     def is_available(self) -> bool:
         """

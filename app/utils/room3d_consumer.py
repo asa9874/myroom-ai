@@ -6,15 +6,22 @@ Room3D 요청 메시지를 수신하고 응답 메시지를 발행합니다.
 
 import json
 import logging
+import os
 import time
+import xml.etree.ElementTree as ET
+from io import BytesIO
 from threading import Thread
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 import pika
+import requests
 from flask import Flask
+from PIL import Image
 
 from .mq_monitor import get_mq_monitor
 from .room3d_producer import Room3DResponseProducer
+from .s3_manager import S3Manager
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +155,8 @@ class Room3DConsumer:
                 raise ValueError("roomName은 필수입니다")
 
             xml_file_url = self._convert_drawing_to_xml(
+                room3d_id=room3d_id,
+                member_id=member_id,
                 drawing_image_url=drawing_image_url,
                 room_name=room_name,
                 description=description,
@@ -184,13 +193,173 @@ class Room3DConsumer:
 
     def _convert_drawing_to_xml(
         self,
+        room3d_id: int,
+        member_id: int,
         drawing_image_url: str,
         room_name: str,
         description: Optional[str] = None,
     ) -> Optional[str]:
-        # //TODO: 도면 이미지 -> XML 생성 AI 로직을 추후 이 함수에 구현할 예정입니다.
-        _ = (drawing_image_url, room_name, description)
-        return None
+        api_url = str(self.config.get("ROOM3D_FLOORPLAN_API_URL", "http://localhost:5001/")).strip()
+        if not api_url:
+            raise ValueError("ROOM3D_FLOORPLAN_API_URL 설정이 필요합니다")
+
+        download_timeout = int(self.config.get("ROOM3D_IMAGE_DOWNLOAD_TIMEOUT", 30))
+        api_timeout = int(self.config.get("ROOM3D_FLOORPLAN_API_TIMEOUT", 90))
+        xml_prefix = str(self.config.get("ROOM3D_XML_S3_PREFIX", "room3d/xml")).strip("/")
+
+        image_bytes, filename, content_type = self._download_drawing_image(
+            drawing_image_url=drawing_image_url,
+            timeout=download_timeout,
+        )
+
+        payload = self._call_floorplan_api(
+            api_url=api_url,
+            image_bytes=image_bytes,
+            filename=filename,
+            content_type=content_type,
+            timeout=api_timeout,
+        )
+
+        xml_bytes = self._build_room3d_xml(
+            payload=payload,
+            room_name=room_name,
+            description=description,
+            drawing_image_url=drawing_image_url,
+        )
+
+        s3_manager = S3Manager(self.config)
+        if not s3_manager.is_available():
+            logger.error("Room3D XML 업로드 실패: S3 사용 불가")
+            return None
+
+        timestamp_ms = int(time.time() * 1000)
+        s3_key = f"{xml_prefix}/member_{member_id}/room3d_{room3d_id}_{timestamp_ms}.xml"
+        success, s3_url = s3_manager.upload_bytes(
+            data=xml_bytes,
+            s3_key=s3_key,
+            content_type="application/xml",
+        )
+        if not success:
+            logger.error("Room3D XML 업로드 실패: %s", s3_url)
+            return None
+
+        return s3_url
+
+    def _download_drawing_image(self, drawing_image_url: str, timeout: int) -> Tuple[bytes, str, str]:
+        response = requests.get(drawing_image_url, timeout=timeout)
+        response.raise_for_status()
+
+        content_type = response.headers.get("content-type", "application/octet-stream")
+        filename = os.path.basename(urlparse(drawing_image_url).path) or "drawing"
+
+        try:
+            image = Image.open(BytesIO(response.content))
+            rgb_image = image.convert("RGB")
+            buffer = BytesIO()
+            rgb_image.save(buffer, format="PNG")
+            image_bytes = buffer.getvalue()
+        except Exception as exc:
+            raise ValueError("도면 이미지를 RGB로 변환하지 못했습니다") from exc
+
+        base_name = os.path.splitext(filename)[0] or "drawing"
+        filename = f"{base_name}.png"
+        content_type = "image/png"
+
+        return image_bytes, filename, content_type
+
+    def _call_floorplan_api(
+        self,
+        api_url: str,
+        image_bytes: bytes,
+        filename: str,
+        content_type: str,
+        timeout: int,
+    ) -> Dict[str, Any]:
+        if not api_url.endswith("/"):
+            api_url = f"{api_url}/"
+
+        response = requests.post(
+            api_url,
+            files={"image": (filename, image_bytes, content_type)},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError("FloorPlanTo3D API 응답이 JSON 형식이 아닙니다") from exc
+
+        if not isinstance(payload, dict):
+            raise ValueError("FloorPlanTo3D API 응답이 객체가 아닙니다")
+
+        return payload
+
+    def _build_room3d_xml(
+        self,
+        payload: Dict[str, Any],
+        room_name: str,
+        description: Optional[str],
+        drawing_image_url: str,
+    ) -> bytes:
+        root = ET.Element("FloorPlan")
+        metadata = ET.SubElement(root, "Metadata")
+        metadata.set("roomName", room_name)
+        metadata.set("sourceImageUrl", drawing_image_url)
+        if description:
+            metadata.set("description", description)
+
+        image_meta = ET.SubElement(root, "Image")
+        width = payload.get("Width")
+        height = payload.get("Height")
+        average_door = payload.get("averageDoor")
+        if width is not None:
+            image_meta.set("width", str(width))
+        if height is not None:
+            image_meta.set("height", str(height))
+        if average_door is not None:
+            image_meta.set("averageDoor", str(average_door))
+
+        objects = ET.SubElement(root, "Objects")
+        points = payload.get("points") or []
+        classes = payload.get("classes") or []
+
+        for index, point in enumerate(points):
+            if not isinstance(point, dict):
+                continue
+
+            obj = ET.SubElement(objects, "Object")
+            obj.set("index", str(index))
+
+            class_name = ""
+            if index < len(classes):
+                class_item = classes[index]
+                if isinstance(class_item, dict):
+                    class_name = str(class_item.get("name") or "")
+                else:
+                    class_name = str(class_item)
+
+            if class_name:
+                obj.set("type", class_name)
+
+            for key in ("x1", "y1", "x2", "y2"):
+                if key in point:
+                    obj.set(key, str(point[key]))
+
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    @staticmethod
+    def _guess_extension(content_type: str) -> str:
+        content_type = content_type.lower()
+        if "jpeg" in content_type:
+            return ".jpg"
+        if "png" in content_type:
+            return ".png"
+        if "gif" in content_type:
+            return ".gif"
+        if "webp" in content_type:
+            return ".webp"
+        return ".img"
 
     def close(self) -> None:
         """연결 종료"""

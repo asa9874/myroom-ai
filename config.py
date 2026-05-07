@@ -72,6 +72,10 @@ class Config:
     ROOM3D_RESPONSE_QUEUE = os.environ.get('ROOM3D_RESPONSE_QUEUE') or 'room3d.response.queue'
     ROOM3D_RESPONSE_ROUTING_KEY = os.environ.get('ROOM3D_RESPONSE_ROUTING_KEY') or 'room3d.response'
     ROOM3D_XML_PLACEHOLDER_TEXT = os.environ.get('ROOM3D_XML_PLACEHOLDER_TEXT') or '이 텍스트는 임시텍스트입니다.'
+    ROOM3D_FLOORPLAN_API_URL = os.environ.get('ROOM3D_FLOORPLAN_API_URL') or 'http://localhost:5001/'
+    ROOM3D_FLOORPLAN_API_TIMEOUT = int(os.environ.get('ROOM3D_FLOORPLAN_API_TIMEOUT') or 90)
+    ROOM3D_IMAGE_DOWNLOAD_TIMEOUT = int(os.environ.get('ROOM3D_IMAGE_DOWNLOAD_TIMEOUT') or 30)
+    ROOM3D_XML_S3_PREFIX = os.environ.get('ROOM3D_XML_S3_PREFIX') or 'room3d/xml'
 
     # RabbitMQ 가구 치수 추출 설정 (Spring Boot ↔ Flask)
     DIMENSIONS_EXCHANGE = os.environ.get('DIMENSIONS_EXCHANGE') or 'model3d.exchange'
